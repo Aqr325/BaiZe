@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="web/public/logo.svg" alt="白泽 BaiZe Logo" width="150" />
+
 # 白泽 BaiZe
 
 **AI 自主渗透测试系统 · 从一句话目标到可交付漏洞报告**
