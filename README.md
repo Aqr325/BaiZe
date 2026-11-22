@@ -15,6 +15,7 @@
 ![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20Docker-lightgrey)
 ![Docker](https://img.shields.io/badge/Docker-ruoji6%2Fartex-2496ED?logo=docker&logoColor=white)
+[![Enhanced](https://img.shields.io/badge/Enhanced-fork%20of%20ARTEX-6f42c1?logo=git&logoColor=white)](https://github.com/Aqr325/BaiZe)
 
 **Go 单体后端** · **Next.js 内嵌前端** · **PostgreSQL** · **多 Agent 自主推进** · **全程证据留痕** · **人在环路纠偏**
 
@@ -67,7 +68,7 @@ cp config.example.json config.json   # 填好 database 连接
 | | |
 |---|---|
 | **🚀 部署** | [安装详解](#安装详解) · [配置速查](#配置速查) · [更新升级](#更新升级) |
-| **📸 产品** | [界面速览](#界面速览) · [核心能力](#核心能力) · [系统架构](#系统架构) · [与同类项目的差异](#与同类项目的差异) |
+| **📸 产品** | [界面速览](#界面速览) · [核心能力](#核心能力) · [系统架构](#系统架构) · [相对上游 ARTEX 的增强](#相对上游-artex-的增强) |
 | **🧰 资产与纪律** | [内置资产清单](#内置资产清单技能--mcp--工具) · [实战纪律与安全边界](#实战纪律与安全边界) |
 | **👥 参与** | [开发与贡献](#开发与贡献) · [来源声明](#来源声明) · [许可与免责声明](#许可与免责声明) · [参考](#参考) |
 
@@ -193,29 +194,29 @@ agent 能力由 [`norma`](https://github.com/Autumn-27/norma) SDK 提供（`agen
 
 于是攻击链在「事件驱动 + 无状态会话」的环境下依然**稳定推进、不重复、不错序**。
 
-### 9. 子代理委派（delegate_task）
+### 9. 子代理委派（delegate_task） · ➕ 本分支新增
 
 - `delegate_task`：把任务拆解成子意图，worker pool 并行执行，失败级联取消（防孤儿子代理）；
 - 生命周期状态机 + 注册表 + 事件 broker（跨 Agent 通信）+ 共享状态（scope + 冻结配置快照）；
 - `subagent_runs` 持久化台账 + 崩溃恢复；`runChild` 永不 panic 包装。
 
-### 10. 记忆系统与 Obsidian 同步
+### 10. 记忆系统与 Obsidian 同步 · ➕ 本分支新增
 
 - `memories` 表 + 每轮对话自动沉淀（含投毒确定性过滤 + salience 封顶 0.7）；
 - Obsidian 同步：frontmatter 边界安全解析 + 实体链接 + 时间感知多信号打分检索；
 - `save_memory` / `recall_memories` 工具 + 记忆库管理页面 + 开关。
 
-### 11. 群聊协作与 Fence 授权
+### 11. 群聊协作与 Fence 授权 · ➕ 本分支新增
 
 - `room` / `discussion` 纯策略包 + `rooms/members/events` 持久化 + member turn 执行 + groups 页面；
 - `task_constraints` 结构化字段 + `task_fence_authz` 越界授权表 + guard/fence.go 允许清单。
 
-### 12. 资产同步与任务情报
+### 12. 资产同步与任务情报 · 🛠 本分支增强
 
 - **ScopeSentry 资产同步**：从 [ScopeSentry](https://github.com/Autumn-27/ScopeSentry) 直接同步资产数据（域名 / 子域 / IP / 端口 / 站点 / 端点），按项目或任务维度选择，一键导入并按公司资产范围归并；
 - **任务情报记录**：`record_intelligence` / `record_fact` 附带 `intelligence` 数组，凭据、重要线索、敏感数据集中查看（系统配置 → 任务情报，默认关闭）。
 
-### 13. LLM 配置与成本
+### 13. LLM 配置与成本 · 🛠 本分支增强
 
 - **多通道轮询**：熔断 + 故障转移 + 用量归因，免费限流通道也能跑完任务；按角色配模型：planner 强推理 / worker 中推理 / judge 便宜档；
 - **成本预算闸**：单意图共享成本预算，超限即停，防止失控计费；
@@ -490,17 +491,43 @@ CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
 
 ---
 
-## 与同类项目的差异
+## 相对上游 ARTEX 的增强
 
-| 维度 | BaiZe | 典型「API 包装型扫描器」 |
+> BaiZe 是 [RuoJi6/ARTEX](https://github.com/RuoJi6/ARTEX) 的**增强分支**——保留上游全部能力，在此之上**本地新增 / 加固 / 增强了以下内容**，这是本分支与上游原版**不一样**的地方。
+
+| 维度 | ARTEX 上游 | **BaiZe 本分支（我们的增强）** |
 |---|---|---|
-| 推进方式 | LLM 多 Agent 自主推进（planner 派意图 + worker 执行） | 固定扫描流程 |
-| 目标判定 | 每条目标带可核验验收标准，`goal_met` 闸门不可绕过 | 无 |
-| 证据 | finding 绑定可机械复现的流量证据，对抗式自检 | 版本匹配「可能存在」 |
-| 留痕 | 全部 HTTP/S 过 MITM 逐请求留存，activity 可回放 | 仅日志 |
-| 攻击链 | planner 多轮共享 todolist，按依赖逐步派发，稳定不错序 | 无 |
-| 人在环路 | 对话纠偏 / 意图暂停取消 / 人工审批 | 无 |
-| 报告 | 专业级 Word + Markdown + 批量「一漏洞一 docx」 | 简单报告 |
+| 记忆与上下文 | 无 | ➕ **记忆系统** + Obsidian 同步 + 投毒确定性过滤 + 记忆库页面 |
+| 任务拆解 | 单 agent 串行 | ➕ **子代理委派**（worker pool + 事件 broker + 竞态修复） |
+| 协作模式 | 单会话 | ➕ **群聊协作**（room / discussion + groups 页面） |
+| 授权边界 | 仅 task_scope | ➕ **Fence 授权**（task_constraints + fence_authz + guard/fence） |
+| 数据洞察 | 无 | ➕ **数据洞察** + 任务对比/复盘 + 渗透报告页 + 子代理 / 记忆 / Obsidian 视图 |
+| 认证与密钥 | 基础 JWT | 🔒 认证限流 + **JWT 版本撤销** + 请求体上限 + 配置原子化 + CORS 白名单 |
+| 网络防护 | 基础 | 🔒 **SSRF 逐跳防护** + 符号链接防护 + 反代 token 清洗 |
+| 提示词安全 | 无 | 🔒 **记忆投毒确定性过滤**（不依赖 LLM 软约束） |
+| 稳定性 | 基础 | 🔒 goroutine panic 恢复 + 生命周期 ctx 收敛 + worker 池竞态修复（`-race` 全绿） |
+| 工具链 | 基础工具 | 🛠 **httpx / katana / nuclei** 集成 + 断点恢复 + 渐进式披露 Skill + MCP 模板库 |
+| 成本控制 | 单通道 | 🛠 LLM **多通道轮询** + 单意图成本预算闸 + 调用超时重试 |
+
+### ➕ 新增能力（上游没有）
+
+- **记忆系统**：`memories` 表 + 每轮对话自动沉淀（投毒过滤 + salience 封顶 0.7）→ 跨会话记住目标与上下文；**Obsidian 同步**落到本地知识库，frontmatter 边界安全解析 + 时间感知多信号检索。
+- **子代理委派**：`delegate_task` 把任务拆成子意图并行执行，生命周期状态机 + 注册表 + 事件 broker（跨 Agent 通信）+ 崩溃恢复；失败级联取消，防孤儿子代理。
+- **群聊协作**：`room` / `discussion` 纯策略 + `rooms/members/events` 持久化 + member turn 执行，多 Bot 共享房间串行发言、@ 提及控制发言权。
+- **Fence 授权**：`task_constraints` 结构化约束 + `task_fence_authz` 越界授权表，agent 只在明确允许范围内动作。
+- **前端多视图**：数据洞察（任务 / 发现 / Token 趋势）、任务对比/复盘（基线 vs 复测）、渗透报告页、子代理 / 记忆 / Obsidian / 群聊 / 命令拦截 / MCP 管理页。
+
+### 🔒 安全加固（比上游更稳）
+
+- **认证与密钥**：认证限流 + JWT 版本撤销（改密即旧 token 失效）+ 请求体上限 + putSettings 原子化 + CORS 白名单；
+- **网络防护**：SSRF 逐跳防护（`CheckRedirect` 每跳校验字面 / 解析后 IP）+ 符号链接防护 + 反代 token 清洗；
+- **提示词安全**：记忆投毒**确定性过滤**——不可信数据沉淀前做凭据 / 指令正则过滤 + 数据边界标记，不依赖 LLM 软约束；
+- **稳定性**：后台 goroutine panic 恢复、生命周期 ctx 收敛、worker 池竞态修复（`-race` 全绿）。
+
+### 🛠 工程增强
+
+- **工具链集成**：httpx / katana / nuclei 接入，断点恢复，渐进式披露 Skill，MCP 模板库；
+- **LLM 成本控制**：多通道轮询（熔断 + 故障转移 + 用量归因）+ 单意图成本预算闸 + 调用超时重试。
 
 ---
 
