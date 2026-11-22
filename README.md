@@ -4,6 +4,16 @@
 
 AI 自主渗透测试系统（Go 后端 + Next.js 前端）
 
+<br>
+
+[![License](https://img.shields.io/badge/license-AGPL--3.0-0b7d3b?logo=gnu&logoColor=white)](https://github.com/Aqr325/ARTEX/blob/main/LICENSE)
+[![Go](https://img.shields.io/github/go-mod/go-version/Aqr325/ARTEX?color=00ADD8&logo=go&logoColor=white)](https://go.dev/dl/)
+[![CI](https://img.shields.io/github/actions/workflow/status/Aqr325/ARTEX/ci.yml?label=CI&color=success)](https://github.com/Aqr325/ARTEX/actions)
+[![Version](https://img.shields.io/github/v/tag/Aqr325/ARTEX?color=purple&logo=github&logoColor=white)](https://github.com/Aqr325/ARTEX/tags)
+[![Stars](https://img.shields.io/github/stars/Aqr325/ARTEX?style=social)](https://github.com/Aqr325/ARTEX)
+[![Forks](https://img.shields.io/github/forks/Aqr325/ARTEX?style=social)](https://github.com/Aqr325/ARTEX)
+[![Last commit](https://img.shields.io/github/last-commit/Aqr325/ARTEX?color=informational)](https://github.com/Aqr325/ARTEX)
+
 
 🌐 **在线 Demo**： [https://artex-demo-ruoji6.vercel.app/](https://artex-demo-ruoji6.vercel.app/)
 
