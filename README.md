@@ -93,43 +93,37 @@ agent 能力由 [`norma`](https://github.com/Autumn-27/norma) SDK 提供（`agen
 
 **全局态势**
 
-| 总览：任务 / 发现 / 资产 / Token 全局态势与趋势 |
+| 仪表盘总览：任务 / 发现 / Token 消耗 / 活动流一屏可见 |
 | :---: |
-| ![总览](screenshots/dashboard.png) |
+| ![仪表盘](screenshots/dashboard.png) |
 
-**任务执行**
+**发现与报告**
 
-| 任务列表：目标进度与漏洞分布一屏可见 | 任务详情：多 Agent 会话，planner 态势研判实时可见 |
+| 发现：跨任务漏洞汇总，按严重度统计 | 渗透报告：按任务生成 HTML / Markdown 交付报告 |
 | :---: | :---: |
-| ![任务列表](screenshots/tasks.png) | ![会话](screenshots/sessions.png) |
+| ![发现](screenshots/findings.png) | ![渗透报告](screenshots/report.png) |
 
-| 探索链路：意图 / 事实 / 漏洞的血缘链 |
-| :---: |
-| ![探索链路](screenshots/graph.png) |
+**多智能体协作**
 
-**发现与证据**
-
-| 发现：跨任务漏洞汇总，按严重度统计 | 资产台账：企业 → 根域名/IP/子域/服务/接口 |
+| 子代理：delegate_task 拆分 / 调度 / 汇总台账 | 群聊：多 Bot 共享房间，串行发言与 @ 提及 |
 | :---: | :---: |
-| ![发现](screenshots/findings.png) | ![资产](screenshots/assets.png) |
+| ![子代理](screenshots/subagents.png) | ![群聊](screenshots/rooms.png) |
 
-| 资产覆盖图（力导向布局 · 已测高亮 · 节点折叠展开） |
-| :---: |
-| ![资产覆盖图](screenshots/assets_test.png) |
+**洞察与复盘**
 
-| 流量录制 | 人在环路对话 |
+| 数据洞察：任务 / 发现 / Token 时间趋势 | 任务对比：基线 vs 复测，修复 / 新增 / 复现 |
 | :---: | :---: |
-| ![流量](screenshots/traffic.png) | ![对话](screenshots/chat.png) |
+| ![数据洞察](screenshots/insights.png) | ![任务对比](screenshots/compare.png) |
 
 **平台配置**
 
-| Agent 管理 | LLM 配置（多通道 / 熔断 / 故障转移） |
+| MCP 服务器：外部工具按 Agent 授权可见 | 记忆库：Agent 共享长期记忆，全局 / 企业 / 任务三级沉淀 |
 | :---: | :---: |
-| ![Agent](screenshots/agents.png) | ![LLM](screenshots/llm.png) |
+| ![MCP](screenshots/mcp.png) | ![记忆库](screenshots/memory.png) |
 
-| 拦截审批（deny / judge / ask 三层闸门） | 后端日志 |
+| Obsidian 知识库：笔记导入记忆库 | 命令拦截：工具执行前拦截规则（rm -rf / mkfs / dd 等禁用） |
 | :---: | :---: |
-| ![拦截](screenshots/intercept.png) | ![日志](screenshots/logs.png) |
+| ![Obsidian](screenshots/obsidian.png) | ![命令拦截](screenshots/intercept.png) |
 
 ---
 
