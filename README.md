@@ -587,18 +587,6 @@ go build -tags embedui -o artex ./cmd/artex && ./start.sh
 
 ---
 
-## 交流群
-
-扫码关注微信公众号 **SecSentry**，在公众号后台私信即可入群交流。
-
-<div align="center">
-
-<img src="screenshots/wx.png" alt="微信公众号 SecSentry" width="480" />
-
-</div>
-
----
-
 ## 参考
 
 - [Cairn](https://github.com/oritera/Cairn) — 同类 AI 渗透测试参考项目
