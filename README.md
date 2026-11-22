@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="web/public/logo.svg" alt="白泽 BaiZe Logo" width="150" />
+<img src="baize-logo.png" alt="白泽 BaiZe Logo" width="220" />
 
 # 白泽 BaiZe
 
