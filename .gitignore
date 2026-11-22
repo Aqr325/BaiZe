@@ -90,3 +90,7 @@ Thumbs.db
 # 场景调度器运行日志
 /server/scenario_decisions.log
 
+
+# 第三方技能库 Cyber-Monster（W4L33Dx，785 子技能/31MB，无 LICENSE=著作权保留，禁止分发）
+# 仅本地使用，不入公开 AGPL 仓库。重新获取：curl -sL https://codeload.github.com/W4L33Dx/Cyber-Monster/tar.gz/refs/heads/main | tar -xz -C skills && mv skills/Cyber-Monster-main skills/cyber-monster
+/skills/cyber-monster/
