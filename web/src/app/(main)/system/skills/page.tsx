@@ -1269,7 +1269,7 @@ export default function SkillsPage() {
                 <Textarea
                   id="sk-inst"
                   className="min-h-40 flex-1 resize-none font-mono text-sm leading-relaxed"
-                  placeholder={"## 执行方法\n\n1. 先探测错误\n2. 区分盲注类型\n\n脚本放 scripts/ 目录。"}
+                  placeholder={ui("skills.installationPlaceholder")}
                   value={newInst}
                   onChange={(e) => setNewInst(e.target.value)}
                 />

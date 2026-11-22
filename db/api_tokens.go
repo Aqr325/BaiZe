@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // SettingMCPServerEnabled gates the /mcp endpoint. Off by default: creating a
@@ -283,6 +285,52 @@ func (d *DB) DeleteAPIToken(id int64) error {
 func (d *DB) RecordAPITokenTask(tokenID, taskID int64) error {
 	_, err := d.Exec(`INSERT INTO api_token_tasks(token_id, task_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, tokenID, taskID)
 	return err
+}
+
+// isUniqueViolation 报告 err 是否为 Postgres 唯一约束冲突（SQLSTATE 23505）。
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+// RecordAPITokenTaskEvent 带幂等键记录一次建任务。eventID 非空时，
+// 唯一索引 uq_api_token_tasks_event 保证同 token+event 只有一行；
+// 返回 inserted=false 表示该事件此前已记录（并发下被另一请求抢先），
+// 调用方应视为幂等命中、复用已存在的 task。
+func (d *DB) RecordAPITokenTaskEvent(tokenID, taskID int64, eventID string) (inserted bool, err error) {
+	if eventID == "" {
+		return false, d.RecordAPITokenTask(tokenID, taskID)
+	}
+	tag, err := d.Exec(`INSERT INTO api_token_tasks(token_id, task_id, event_id) VALUES ($1,$2,$3)
+		ON CONFLICT ON CONSTRAINT api_token_tasks_pkey DO NOTHING`, tokenID, taskID, eventID)
+	if err != nil {
+		// 唯一索引冲突（同 token+event 已有行）不是错误，视为幂等命中。
+		if isUniqueViolation(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if tag == nil {
+		return false, nil
+	}
+	n, _ := tag.RowsAffected()
+	return n > 0, nil
+}
+
+// APITokenTaskByEvent 查同 token+event 此前建过的 task id。
+// 第二个返回值为 false 表示没有记录（首次调用）。仅 eventID 非空时有效。
+func (d *DB) APITokenTaskByEvent(tokenID int64, eventID string) (taskID int64, found bool, err error) {
+	if eventID == "" {
+		return 0, false, nil
+	}
+	err = d.QueryRow(`SELECT task_id FROM api_token_tasks WHERE token_id=$1 AND event_id=$2 LIMIT 1`, tokenID, eventID).Scan(&taskID)
+	if err == nil {
+		return taskID, true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	return 0, false, err
 }
 
 // APITokenTaskUsage returns how many tasks the token created in the last hour

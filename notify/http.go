@@ -82,14 +82,17 @@ func blockInternalDial(_, address string, _ syscall.RawConn) error {
 }
 
 // notifyTransport 在默认 Transport 的基础上只加一个拨号守卫。
-// 用 Clone 保留默认的全部调优（连接池、HTTP/2、超时、proxy 等），
-// 避免为了加一个检查而改动其它行为。
+// 用 Clone 保留默认的调优（连接池、HTTP/2、超时等），但**不保留代理**：
+// ProxyFromEnvironment 会让拨号目标变成代理 IP，blockInternalDial 看到的
+// 就是公网代理而不是真实投递地址，169.254.169.254 之类会藏在请求行/CONNECT
+// 里穿过守卫。通知渠道本就刻意直连（见 httpClient 注释），这里显式关掉。
 var notifyTransport = func() *http.Transport {
 	t, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		return &http.Transport{}
 	}
 	clone := t.Clone()
+	clone.Proxy = nil
 	clone.DialContext = (&net.Dialer{Timeout: 10 * time.Second, Control: blockInternalDial}).DialContext
 	return clone
 }()

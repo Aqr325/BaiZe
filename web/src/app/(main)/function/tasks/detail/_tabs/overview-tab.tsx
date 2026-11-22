@@ -31,6 +31,8 @@ import { api } from "@/lib/api";
 import type {
   AssetInterceptKind,
   AssetInterceptRule,
+  FenceAuthz,
+  FenceMatch,
   Finding,
   ModelTokenStat,
   Stats,
@@ -142,11 +144,19 @@ export function OverviewTab({ taskId }: { taskId: string }) {
   const [constraints, setConstraints] = React.useState<TaskConstraint[]>([]);
   const [conText, setConText] = React.useState("");
   const [conKind, setConKind] = React.useState<TaskConstraint["kind"]>("deny");
+  const [conMatch, setConMatch] = React.useState<FenceMatch>("");
+  const [conPattern, setConPattern] = React.useState("");
   const [conBusy, setConBusy] = React.useState(false);
   const [conErr, setConErr] = React.useState("");
   const [editingConId, setEditingConId] = React.useState<string | null>(null);
   const [editConText, setEditConText] = React.useState("");
   const [editConKind, setEditConKind] = React.useState<TaskConstraint["kind"]>("deny");
+  const [editConMatch, setEditConMatch] = React.useState<FenceMatch>("");
+  const [editConPattern, setEditConPattern] = React.useState("");
+  // Fence 越界授权：授权记录 + 允许清单激活状态。
+  const [fenceAuthz, setFenceAuthz] = React.useState<FenceAuthz[]>([]);
+  const [fenceActive, setFenceActive] = React.useState(false);
+  const [authzBusy, setAuthzBusy] = React.useState(false);
 
   const loadTokens = React.useCallback(async () => {
     try {
@@ -238,15 +248,31 @@ export function OverviewTab({ taskId }: { taskId: string }) {
     }
   }, [taskId]);
 
+  const loadFenceAuthz = React.useCallback(async () => {
+    try {
+      const resp = await api.taskFenceAuthz(taskId);
+      setFenceAuthz(resp.authorizations);
+      setFenceActive(resp.fenceActive);
+    } catch {
+      // 忽略：无 PG 或瞬时错误
+    }
+  }, [taskId]);
+
   const addConstraint = async () => {
     const text = conText.trim();
     if (!text) return;
+    if (conMatch && !conPattern.trim()) {
+      setConErr(ui("overview.fenceRuleNeedsPattern"));
+      return;
+    }
     setConBusy(true);
     setConErr("");
     try {
-      await api.addConstraint(taskId, text, conKind);
+      await api.addConstraint(taskId, text, conKind, conMatch, conPattern.trim() || undefined);
       setConText("");
+      setConPattern("");
       await loadConstraints();
+      await loadFenceAuthz();
     } catch (e) {
       setConErr(e instanceof Error ? e.message : ui("screen.2ca15f1e2bb7d9"));
     } finally {
@@ -258,23 +284,32 @@ export function OverviewTab({ taskId }: { taskId: string }) {
     setEditingConId(c.id);
     setEditConText(c.text);
     setEditConKind(c.kind);
+    setEditConMatch(c.match ?? "");
+    setEditConPattern(c.pattern ?? "");
   };
 
   const cancelEditConstraint = () => {
     setEditingConId(null);
     setEditConText("");
     setEditConKind("deny");
+    setEditConMatch("");
+    setEditConPattern("");
   };
 
   const saveEditConstraint = async (c: TaskConstraint) => {
     const text = editConText.trim();
     if (!text) return;
+    if (editConMatch && !editConPattern.trim()) {
+      setConErr(ui("overview.fenceRuleNeedsPattern"));
+      return;
+    }
     setConBusy(true);
     setConErr("");
     try {
-      await api.updateConstraint(taskId, c.id, text, editConKind);
+      await api.updateConstraint(taskId, c.id, text, editConKind, editConMatch, editConPattern.trim() || undefined);
       cancelEditConstraint();
       await loadConstraints();
+      await loadFenceAuthz();
     } catch (e) {
       setConErr(e instanceof Error ? e.message : ui("screen.6309a3bb5ba4c7"));
     } finally {
@@ -286,8 +321,21 @@ export function OverviewTab({ taskId }: { taskId: string }) {
     setConstraints((prev) => prev.filter((x) => x.id !== c.id));
     try {
       await api.deleteConstraint(taskId, c.id);
+      await loadFenceAuthz();
     } catch {
       await loadConstraints(); // 删除失败：重新拉取还原
+    }
+  };
+
+  const revokeAuthz = async (a: FenceAuthz) => {
+    setAuthzBusy(true);
+    try {
+      await api.revokeFenceAuthz(taskId, a.id);
+      await loadFenceAuthz();
+    } catch {
+      // 忽略：瞬时错误
+    } finally {
+      setAuthzBusy(false);
     }
   };
 
@@ -403,17 +451,19 @@ export function OverviewTab({ taskId }: { taskId: string }) {
     void loadTokens();
     void loadGoals();
     void loadConstraints();
+    void loadFenceAuthz();
     const timer = setInterval(() => {
       void load();
       void loadTokens();
       void loadGoals();
       void loadConstraints();
+      void loadFenceAuthz();
     }, 3000);
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [taskId, loadScope, loadTokens, loadGoals, loadConstraints]);
+  }, [taskId, loadScope, loadTokens, loadGoals, loadConstraints, loadFenceAuthz]);
 
   const running = intents.filter((i) => i.state === "running");
   const open = intents.filter((i) => i.state === "open");
@@ -578,7 +628,8 @@ export function OverviewTab({ taskId }: { taskId: string }) {
       </Card>
       {/* 操作约束管理：allow=允许 / deny=禁止。约束会在下一轮规划时注入 planner/worker 的系统
           提示以框定探索边界（注入范围可在 系统设置 里按 planner/worker 开关）。改动不即时打断，
-          下一轮规划自然读到。 */}
+          下一轮规划自然读到。带 match/pattern 的约束是「Fence 允许清单+越界授权」硬边界：
+          允许清单内的调用自动放行，清单外（越界）转人工越界授权，禁止清单硬拦截。 */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -586,6 +637,21 @@ export function OverviewTab({ taskId }: { taskId: string }) {
             <span className="text-muted-foreground text-xs font-normal">
               {ui("screen.691f172a77731d")}
               {constraints.length} {ui("screen.e8bc17b1cbc7c0")}
+            </span>
+            {/* Fence 状态徽章：有结构化 allow 规则=允许清单已启用（deny-by-default）。 */}
+            <span
+              className={`shrink-0 rounded px-1.5 py-0.5 text-xs ${
+                fenceActive
+                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                  : "bg-muted text-muted-foreground"
+              }`}
+              title={
+                fenceActive
+                  ? ui("overview.fenceEnabledTitle")
+                  : ui("overview.fenceDisabledTitle")
+              }
+            >
+              {fenceActive ? ui("overview.fenceEnabled") : ui("overview.fenceDisabled")}
             </span>
           </CardTitle>
         </CardHeader>
@@ -600,6 +666,20 @@ export function OverviewTab({ taskId }: { taskId: string }) {
               <NativeSelectOption value="deny">{ui("screen.b645c326ce3ecb")}</NativeSelectOption>
               <NativeSelectOption value="allow">{ui("screen.ce7ef28b670ade")}</NativeSelectOption>
             </NativeSelect>
+            <NativeSelect
+              size="sm"
+              value={conMatch}
+              onChange={(e) => setConMatch(e.target.value as FenceMatch)}
+              title={ui("overview.fenceMatchTitle")}
+            >
+              <NativeSelectOption value="">{ui("overview.fenceSurfaceFree")}</NativeSelectOption>
+              <NativeSelectOption value="host">{ui("overview.fenceSurfaceHost")}</NativeSelectOption>
+              <NativeSelectOption value="command">{ui("overview.fenceSurfaceCommand")}</NativeSelectOption>
+              <NativeSelectOption value="tool">{ui("overview.fenceSurfaceTool")}</NativeSelectOption>
+              <NativeSelectOption value="path">{ui("overview.fenceSurfacePath")}</NativeSelectOption>
+              <NativeSelectOption value="port">{ui("overview.fenceSurfacePort")}</NativeSelectOption>
+              <NativeSelectOption value="all">{ui("overview.fenceSurfaceAll")}</NativeSelectOption>
+            </NativeSelect>
             <Input
               className="h-7 min-w-56 flex-1 text-sm"
               placeholder={ui("screen.8a26794f3e2cef")}
@@ -610,6 +690,18 @@ export function OverviewTab({ taskId }: { taskId: string }) {
               }}
               disabled={conBusy}
             />
+            {conMatch && (
+              <Input
+                className="h-7 w-48 text-sm"
+                placeholder={ui("overview.fencePatternPlaceholder")}
+                value={conPattern}
+                onChange={(e) => setConPattern(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void addConstraint();
+                }}
+                disabled={conBusy}
+              />
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -634,6 +726,20 @@ export function OverviewTab({ taskId }: { taskId: string }) {
                       <NativeSelectOption value="deny">{ui("screen.b645c326ce3ecb")}</NativeSelectOption>
                       <NativeSelectOption value="allow">{ui("screen.ce7ef28b670ade")}</NativeSelectOption>
                     </NativeSelect>
+                    <NativeSelect
+                      size="sm"
+                      value={editConMatch}
+                      onChange={(e) => setEditConMatch(e.target.value as FenceMatch)}
+                      title={ui("overview.fenceMatchTitleShort")}
+                    >
+                      <NativeSelectOption value="">{ui("overview.fenceSurfaceFree")}</NativeSelectOption>
+                      <NativeSelectOption value="host">{ui("overview.fenceSurfaceHost")}</NativeSelectOption>
+                      <NativeSelectOption value="command">{ui("overview.fenceSurfaceCommand")}</NativeSelectOption>
+                      <NativeSelectOption value="tool">{ui("overview.fenceSurfaceTool")}</NativeSelectOption>
+                      <NativeSelectOption value="path">{ui("overview.fenceSurfacePath")}</NativeSelectOption>
+                      <NativeSelectOption value="port">{ui("overview.fenceSurfacePort")}</NativeSelectOption>
+                      <NativeSelectOption value="all">{ui("overview.fenceSurfaceAll")}</NativeSelectOption>
+                    </NativeSelect>
                     <Input
                       className="h-7 min-w-56 flex-1 text-sm"
                       value={editConText}
@@ -645,6 +751,18 @@ export function OverviewTab({ taskId }: { taskId: string }) {
                       disabled={conBusy}
                       autoFocus
                     />
+                    {editConMatch && (
+                      <Input
+                        className="h-7 w-48 text-sm"
+                        placeholder="glob"
+                        value={editConPattern}
+                        onChange={(e) => setEditConPattern(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void saveEditConstraint(c);
+                        }}
+                        disabled={conBusy}
+                      />
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"
@@ -675,6 +793,11 @@ export function OverviewTab({ taskId }: { taskId: string }) {
                     >
                       {c.kind === "allow" ? ui("screen.ce7ef28b670ade") : ui("screen.b645c326ce3ecb")}
                     </span>
+                    {c.match && (
+                      <span className="shrink-0 rounded bg-sky-500/15 px-1.5 py-0.5 text-xs text-sky-600 dark:text-sky-400">
+                        {c.match} {c.pattern}
+                      </span>
+                    )}
                     <span className="min-w-0 flex-1 break-words">{c.text}</span>
                     <Button
                       size="sm"
@@ -701,6 +824,44 @@ export function OverviewTab({ taskId }: { taskId: string }) {
           ) : (
             <p className="text-muted-foreground text-sm">{ui("screen.fbc65e7a177185")}</p>
           )}
+
+          {/* Fence 越界授权列表 */}
+          <div className="flex flex-col gap-1.5 border-t pt-2">
+            <div className="flex items-center gap-2">
+              <ShieldCheckIcon className="size-4 text-emerald-500" />
+              <span className="text-sm font-medium">{ui("overview.fenceAuthzTitle")}</span>
+              <span className="text-muted-foreground text-xs">
+                {fenceActive
+                  ? ui("overview.fenceAuthzOn")
+                  : ui("overview.fenceAuthzOff")}
+              </span>
+            </div>
+            {fenceAuthz.length > 0 ? (
+              <div className="flex flex-col gap-1.5">
+                {fenceAuthz.map((a) => (
+                  <div key={a.id} className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm">
+                    <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs text-emerald-600 dark:text-emerald-400">
+                      {ui("overview.fenceAuthzGranted")}
+                    </span>
+                    <code className="min-w-0 flex-1 break-all text-xs">{a.surface}</code>
+                    {a.tool && <span className="text-muted-foreground text-xs">{a.tool}</span>}
+                    {a.created_at && <span className="text-muted-foreground text-xs">{a.created_at}</span>}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 shrink-0 px-1.5"
+                      disabled={authzBusy}
+                      onClick={() => void revokeAuthz(a)}
+                    >
+                      <Trash2Icon className="size-3.5 text-red-500" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-xs">{ui("overview.fenceAuthzEmpty")}</p>
+            )}
+          </div>
         </CardContent>
       </Card>
       <TaskInterceptRulesCard taskId={taskId} />

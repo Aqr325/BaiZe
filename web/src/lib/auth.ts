@@ -19,8 +19,11 @@ export const auth = {
 
   setToken(token: string): void {
     localStorage.setItem(TOKEN_KEY, token);
-    // 同步写 cookie，供 Next.js middleware 服务端读取
-    document.cookie = `${TOKEN_KEY}=${encodeURIComponent(token)}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=Lax`;
+    // 同步写 cookie，供 Next.js middleware 服务端读取。
+    // SameSite=Lax 限制跨站携带；HTTPS 下追加 Secure，避免明文链路泄露。
+    // 暂不加 HttpOnly：前端仍需读取该 token，HttpOnly 需后端配合改造。
+    const secure = typeof window !== "undefined" && window.location?.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `${TOKEN_KEY}=${encodeURIComponent(token)}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=Lax${secure}`;
   },
 
   clearToken(): void {
@@ -37,8 +40,17 @@ export const auth = {
       if (parts.length !== 3) return null;
       // base64url → base64
       const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+      // 显示名固定为「白泽」（品牌名）；JWT sub 仅作为真实登录用户名保留，
+      // 不参与展示——旧 token 的 sub=ARTEX 不影响右上角显示名。
       const username: string = payload.sub ?? "ARTEX";
-      return { id: "1", name: username, username, email: "", avatar: "", role: "operator" };
+      return {
+        id: "1",
+        name: "白泽",
+        username,
+        email: "",
+        avatar: "/logo.png",
+        role: "operator",
+      };
     } catch {
       return null;
     }

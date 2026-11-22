@@ -15,6 +15,9 @@ func TestNewClientUsesNativeSOCKS5Proxy(t *testing.T) {
 	if !ok {
 		t.Fatalf("transport type=%T", client.Transport)
 	}
+	if transport.ResponseHeaderTimeout <= 0 {
+		t.Fatalf("response header timeout must be set to bound stalled providers: %v", transport.ResponseHeaderTimeout)
+	}
 	proxyURL, err := transport.Proxy(httptest.NewRequest(http.MethodGet, "https://target.invalid", nil))
 	if err != nil {
 		t.Fatal(err)

@@ -23,8 +23,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Autumn-27/artex/internal/httpidentity"
-	"github.com/Autumn-27/artex/traffic"
+	"github.com/Autumn-27/baize/internal/httpidentity"
+	"github.com/Autumn-27/baize/traffic"
 )
 
 const settingEgressProbeURL = "egress_probe_url"
@@ -367,7 +367,7 @@ func (s *Server) testEgressProxy(w http.ResponseWriter, r *http.Request) {
 	// 请求体只有一个地址，给个上限，免得被塞大 payload。
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	// 空 body 等价于测直连。
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+	if err := decode(r, &req); err != nil && !errors.Is(err, io.EOF) {
 		writeErr(w, 400, err.Error())
 		return
 	}

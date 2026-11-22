@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/baize/db"
 )
 
 // LogLine is one captured backend log entry exposed by the /api/logs endpoints.
@@ -136,9 +136,15 @@ func (s *logSinkT) add(l LogLine) {
 		s.ring = s.ring[len(s.ring)-s.cap:]
 	}
 	ch := s.dbCh
-	subs := make([]chan LogLine, 0, len(s.subs))
+	// Fan out while holding the lock. subscribe()'s cleanup removes a channel
+	// from s.subs under this same lock before closing it; broadcasting outside
+	// the lock could send on a channel that was just closed (panic). Sends are
+	// non-blocking, so the critical section stays short even with a slow reader.
 	for sub := range s.subs {
-		subs = append(subs, sub)
+		select {
+		case sub <- l:
+		default:
+		}
 	}
 	s.mu.Unlock()
 
@@ -146,13 +152,6 @@ func (s *logSinkT) add(l LogLine) {
 	if ch != nil {
 		select {
 		case ch <- dbWriteReq{seq: l.Seq, ll: l}:
-		default:
-		}
-	}
-
-	for _, sub := range subs {
-		select {
-		case sub <- l:
 		default:
 		}
 	}

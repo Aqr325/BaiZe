@@ -9,7 +9,10 @@ function writeClientCookie(serializedCookie: string) {
 
 export function setClientCookie(key: string, value: string, days = 7) {
   const expires = new Date(Date.now() + days * 864e5).toUTCString();
-  writeClientCookie(`${key}=${value}; expires=${expires}; path=/`);
+  // 限制跨站携带；HTTPS 下追加 Secure 避免明文链路泄露。
+  // 认证 cookie 仍可被前端读取，故本次不加 HttpOnly（需后端配合）。
+  const secure = typeof window !== "undefined" && window.location?.protocol === "https:" ? "; Secure" : "";
+  writeClientCookie(`${key}=${value}; expires=${expires}; path=/; SameSite=Lax${secure}`);
 }
 
 export function getClientCookie(key: string) {

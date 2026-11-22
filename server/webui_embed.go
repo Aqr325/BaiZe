@@ -28,6 +28,13 @@ func (s *Server) webuiHandler() http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+		// 前端静态资源缓存：Next 导出的 _next/static/ 文件名带内容 hash，
+		// 可 immutable 长缓存（一年）；HTML 入口 no-cache 保证版本更新立即可见。
+		if strings.HasPrefix(p, "_next/static/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else if p == "" || strings.HasSuffix(p, ".html") {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		if p == "" {
 			p = "index.html"
 		}
@@ -40,6 +47,7 @@ func (s *Server) webuiHandler() http.Handler {
 				return
 			}
 		}
+		w.Header().Set("Cache-Control", "no-cache") // SPA 兜底也返回 HTML
 		http.ServeFileFS(w, r, root, "index.html")
 	})
 }

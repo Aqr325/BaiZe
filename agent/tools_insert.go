@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/baize/db"
 	actool "github.com/Autumn-27/norma/tool"
 )
 
@@ -666,6 +666,8 @@ func (t *ToolSet) WorkerTools() []actool.CoreTool {
 		t.nodeDetail(),
 		// 以下工具仍【不给】worker，只留给 planner/main（读上下文、跨 work 复盘是规划职责，
 		// worker 只做单条意图的执行与写回）：list_facts / list_companies / list_worker_traces。
+		// 长期记忆：观察到的可复用结论当场沉淀（技术特征/有效打法/证伪的死路）。
+		t.saveMemory(), t.recallMemories(),
 	}
 }
 
@@ -687,6 +689,8 @@ func (t *ToolSet) MainAgentTools() []actool.CoreTool {
 		t.addTaskScope(),
 		// list_untested_assets：按需查本任务范围内未测资产(类型+分页)，自行决定补测。
 		t.listUntestedAssets(),
+		// 长期记忆：人表达的偏好、跨任务可复用的结论，随手沉淀（下轮任务直接看到）。
+		t.saveMemory(), t.recallMemories(),
 	}
 }
 

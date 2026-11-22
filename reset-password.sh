@@ -16,7 +16,7 @@
 #   ./reset-password.sh                          # 本地，自动读 config.json/环境，交互输入新密码
 #   ./reset-password.sh -p 'NewPass!'            # 本地，直接给定新密码
 #   ./reset-password.sh --dsn postgres://u:p@h:5432/artex
-#   ./reset-password.sh -H 127.0.0.1 -P 5433 -U autopentest -W pass -d artex
+#   ./reset-password.sh -H 127.0.0.1 -P 5432 -U autopentest -W pass -d artex
 #   ./reset-password.sh -m docker                # docker 部署（读 .env 的 POSTGRES_*）
 #   ./reset-password.sh -m docker -c pg容器名 --exec docker
 #
@@ -139,10 +139,20 @@ export ARTEX_RESET_NEWPASS="$NEWPASS"
 SQL=$(cat <<SQL
 \\set ON_ERROR_STOP on
 \\getenv newpw ARTEX_RESET_NEWPASS
+BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 INSERT INTO settings(key, value)
 VALUES ('$PASS_KEY', crypt(:'newpw', gen_salt('bf', $BCRYPT_COST)))
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
+-- 改密必须同时撤销旧管理员 JWT：递增 token_version 让所有已签发的旧 token 立即失效，
+-- 否则它们还能用满 7 天。非数字旧值按 1 处理，从 2 重新开始。
+INSERT INTO settings(key, value)
+VALUES ('auth.token_version',
+  CASE WHEN (SELECT value FROM settings WHERE key = 'auth.token_version') ~ '^[0-9]+\$'
+       THEN (SELECT value FROM settings WHERE key = 'auth.token_version')::bigint + 1
+       ELSE 2 END)
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
+COMMIT;
 SQL
 )
 

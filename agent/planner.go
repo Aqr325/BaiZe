@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept"
+	"github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/intercept"
 	"github.com/Autumn-27/norma/agentcore"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/permission"
@@ -40,6 +40,7 @@ type Planner struct {
 	noaEnabledFn      func() bool   // resolver: use experimental noa compaction? (nil = off)
 	maxTokensFn       func() int    // resolver: per-reply output cap (nil/0 = send no cap)
 	compactor         *Compactor    // cold-node compaction (§7); nil = disabled
+	memoryTaskID      int64         // task whose memories are injected into the system prompt
 
 	// todos keeps ONE plan-scratchpad per task (keyed by exploration id) so the
 	// planner's multi-step plan survives across wake-ups — each Plan() is a fresh
@@ -100,6 +101,10 @@ func (p *Planner) SetWebSearch(o WebSearchOpts) { p.webSearch = o }
 // SetConstraintInject wires a resolver deciding whether this task's operation
 // constraints get injected into the planner system prompt. Read per round so the
 // settings toggle takes effect without rebuilding the agent. nil = inject (default).
+// SetMemoryTaskID wires the task whose memories get injected into this agent's
+// system prompt. Wired once at construction, per task.
+func (p *Planner) SetMemoryTaskID(taskID int64) { p.memoryTaskID = taskID }
+
 func (p *Planner) SetConstraintInject(fn func() bool) { p.injectConstraints = fn }
 
 // wantConstraints reports whether constraint injection is enabled (default yes).
@@ -341,8 +346,8 @@ const plannerDefaultTmpl = `你是一个网络安全平台授权渗透测试系�
 
 不重复、不硬凑；但目标未达成、又有未覆盖且更深的打法时，该派就派。简洁、聚焦、高效。`
 
-func plannerSystem(goal, dataDir, workDir string) string {
-	body := renderSystem("planner", plannerDefaultTmpl, PlannerVars{Goal: goal, DataDir: dataDir, Now: nowStr()})
+func plannerSystem(goal, dataDir, workDir string, taskID int64) string {
+	body := renderSystem("planner", plannerDefaultTmpl, PlannerVars{Goal: goal, DataDir: dataDir, Now: nowStr(), TaskID: taskID})
 	return body + artifactSpec(workDir)
 }
 
@@ -364,6 +369,7 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 	tsx.SetFindingRecorder(p.findingRecorder)
 	if as != nil {
 		tsx.SetAssetStore(as, as.Companies())
+		tsx.SetMemoryStore(as.Memories()) // save_memory / recall_memories
 	}
 	tsx.SetTaskID(taskID)
 	tsx.SetCoverageEnabled(as == nil || as.CoverageEnabled(taskID))
@@ -392,7 +398,7 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 	// 本任务的工作目录 <workDir>/tasks/<taskID>，先建好。
 	taskDir := ensureRunDir(p.workDir, taskID, 0)
 	ctx = intercept.WithReviewContext(ctx, taskDir, intercept.ReviewBackground{})
-	sysBody := plannerSystem(goal, p.workDir, taskDir)
+	sysBody := plannerSystem(goal, p.workDir, taskDir, p.memoryTaskID)
 	if p.wantConstraints() {
 		sysBody += constraintBlock(ts) // 操作约束(若有)注入系统提示,框定探索边界
 	}

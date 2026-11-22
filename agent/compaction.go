@@ -26,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/baize/db"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/transcript"
 )
@@ -40,9 +40,22 @@ type Compactor struct {
 	cooldown time.Duration // min gap between compactions per task (§7 60s)
 	maxDur   time.Duration // hard cap on one background compaction
 
+	// lifecycleCtx 是可选的进程生命周期 ctx。后台压缩用 WithoutCancel 剥离本轮
+	// planner 的 ctx（让它活过这一轮），但因此也失去了服务关停信号——若没有它，
+	// shutdown 后压缩仍会调用 LLM 最长 5 分钟并写库。装配层注入后，这里把它的
+	// 取消信号桥接到压缩 ctx；nil 时保持旧行为（单测/无装配场景）。
+	lifecycleCtx context.Context
+
 	mu      sync.Mutex
 	running map[int64]bool
 	lastRun map[int64]time.Time
+}
+
+// SetLifecycleCtx 注入进程级生命周期 ctx，供后台压缩在关停时收敛。
+func (c *Compactor) SetLifecycleCtx(ctx context.Context) {
+	if c != nil {
+		c.lifecycleCtx = ctx
+	}
 }
 
 // NewCompactor builds a compactor. prov/model are used for the §4 body LLM call
@@ -84,8 +97,21 @@ func (c *Compactor) OnPlannerRound(ctx context.Context, ts *db.ExplorationStore)
 	}
 	go func() {
 		defer c.finish(ts.ID())
+		// 兜底 recover：本 goroutine 直接调用 major/minor（含 LLM + DB），
+		// 任一处 panic 都会终止整个进程；后台压缩失败不应致命。
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[compaction] exp=%d panic recovered: %v", ts.ID(), r)
+			}
+		}()
 		bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), c.maxDur)
 		defer cancel()
+		// 把进程关停信号桥接回来：WithoutCancel 只保留 ctx 的 value、去掉本轮
+		// planner 的取消，这是刻意的；但服务 shutdown 必须能中断后台压缩。
+		if c.lifecycleCtx != nil {
+			stop := context.AfterFunc(c.lifecycleCtx, cancel)
+			defer stop()
+		}
 		// 压缩是裸 provider 调用（compress 里直接 prov.Complete），不经过 agentcore
 		// 的会话循环，所以 ctx 上没有 session id；按 session-id 头做提示缓存/粘性
 		// 路由的网关（opencode zen 缺 x-opencode-session 直接 400）就收不到该头。

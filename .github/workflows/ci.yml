@@ -1,0 +1,53 @@
+name: ci
+
+# 质量门禁：PR 与 main 推送都跑 Go 全量测试。此前流水线只有 demo 部署和
+# release 发布，唯一"测试"是 artex -h 冒烟，1000+ 测试函数从未在 CI 执行。
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: artex
+          POSTGRES_PASSWORD: artex
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U artex -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # config.PostgresDSN 中环境变量优先级最高，无需配置文件；
+      # db.Open 会自动建库并幂等应用 schema，指向默认 postgres 库即可。
+      ARTEX_PG_DSN: postgres://artex:artex@127.0.0.1:5432/postgres?sslmode=disable
+      GOPROXY: https://goproxy.cn,direct
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Go test (full suite, race detector)
+        # -count=1 禁用测试结果缓存，确保每次 PR 都真实执行。
+        # 依赖 PG 的用例通过 ARTEX_PG_DSN 连上面的 service；重 DB 包的
+        # TestMain 共用 advisory lock 7337741002 协调并发清理，支持并发跑包。
+        run: go test ./... -race -count=1

@@ -22,12 +22,13 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept/jev"
-	"github.com/Autumn-27/artex/llmhttp"
+	"github.com/Autumn-27/baize/agent"
+	"github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/intercept/jev"
+	"github.com/Autumn-27/baize/llmhttp"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/skill"
+	"gopkg.in/yaml.v3"
 )
 
 // validSkillName checks the agentskills.io name constraints, widened so a skill can
@@ -79,7 +80,19 @@ func pathInt(r *http.Request, name string) (int64, bool) {
 	return n, err == nil
 }
 
-func decode(r *http.Request, v any) error { return json.NewDecoder(r.Body).Decode(v) }
+// maxDefaultRequestBodyBytes caps JSON request bodies at 32 MiB. Most endpoints
+// parse much smaller payloads; the cap exists to stop an unauthenticated or
+// authenticated client from streaming an unbounded body and exhausting memory.
+// Endpoints needing more (uploads) already install their own MaxBytesReader.
+const maxDefaultRequestBodyBytes = 32 << 20
+
+// decode decodes a JSON request body with a hard size cap. io.LimitReader is
+// used instead of http.MaxBytesReader so the signature stays compatible with
+// all existing callers (no ResponseWriter param); oversized bodies surface as
+// a JSON syntax/unexpected-EOF error rather than being fully buffered.
+func decode(r *http.Request, v any) error {
+	return json.NewDecoder(io.LimitReader(r.Body, maxDefaultRequestBodyBytes+1)).Decode(v)
+}
 
 // ---------- tasks (delete) ----------
 
@@ -170,7 +183,7 @@ func (s *Server) pgDeleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.drainTaskSideQuestions(drainCtx, id); err != nil {
+	if err := s.side.drainTask(drainCtx, id); err != nil {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
@@ -376,7 +389,7 @@ func (s *Server) pgSaveAgentConfig(w http.ResponseWriter, r *http.Request) {
 		TriggerMergeMode   *string `json:"trigger_merge_mode"`
 		TriggerMaxParallel *int    `json:"trigger_max_parallel"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
@@ -710,7 +723,7 @@ func (s *Server) pgPreviewPrompt(w http.ResponseWriter, r *http.Request) {
 	}
 	rendered, err := renderPrompt(body.Template, withGlobalVars(vars), body.Sample)
 	if err != nil {
-		writeJSON(w, 200, map[string]any{"rendered": "", "error": err.Error()})
+		writeJSON(w, 200, map[string]any{"rendered": "", "error": sanitizeClientError(err.Error())})
 		return
 	}
 	writeJSON(w, 200, map[string]any{"rendered": rendered})
@@ -973,8 +986,12 @@ func (s *Server) pgMCPTools(w http.ResponseWriter, r *http.Request) {
 // ---------- skills (文件系统) ----------
 
 type skillFileNode struct {
-	Name          string   `json:"name"`
-	Description   string   `json:"description,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// Short is the concise progressive-disclosure summary (frontmatter `short:`).
+	// The UI collapses to it and expands the full description on demand, keeping
+	// the skill list focused without losing detail. Falls back to Description.
+	Short         string   `json:"short,omitempty"`
 	License       string   `json:"license,omitempty"`
 	Compatibility string   `json:"compatibility,omitempty"`
 	MCPs          []string `json:"mcps,omitempty"`
@@ -1031,6 +1048,11 @@ func (s *Server) fsListSkills(w http.ResponseWriter, r *http.Request) {
 			node.Compatibility = meta.Compatibility
 			node.MCPs = meta.MCPs
 		}
+		// Progressive disclosure: prefer the concise frontmatter `short:` summary;
+		// fall back to the full description when absent.
+		if node.Short = skillShortDescription(filepath.Join(s.skillDir, dirName)); node.Short == "" {
+			node.Short = node.Description
+		}
 		node.Files, _ = walkSkillFiles(filepath.Join(s.skillDir, dirName))
 		if node.Files == nil {
 			node.Files = []string{}
@@ -1038,6 +1060,37 @@ func (s *Server) fsListSkills(w http.ResponseWriter, r *http.Request) {
 		nodes = append(nodes, node)
 	}
 	writeJSON(w, 200, map[string]any{"skills": nodes})
+}
+
+// skillShortDescription extracts the optional `short:` frontmatter key from a
+// skill's SKILL.md (progressive disclosure). norma's frontmatter struct only
+// captures fixed keys, so we parse it here ourselves; a missing or malformed
+// short returns "" and the caller falls back to the full description.
+func skillShortDescription(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
+	if err != nil {
+		return ""
+	}
+	s := string(b)
+	if !strings.HasPrefix(s, "---") {
+		return ""
+	}
+	rest := strings.TrimLeft(strings.TrimPrefix(s, "---"), "\r\n")
+	i := strings.Index(rest, "\n---")
+	if i < 0 {
+		return ""
+	}
+	head := rest[:i]
+	var fm struct {
+		Short string `yaml:"short"`
+	}
+	if err := yaml.Unmarshal([]byte(head), &fm); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(fm.Short)
 }
 
 // fsSkillUsage returns one skill's recent invocations, newest first (detail panel).
@@ -2047,7 +2100,7 @@ func (s *Server) pgListModels(w http.ResponseWriter, r *http.Request) {
 		}
 		models, err := (jev.Config{BaseURL: baseURL, APIKey: apiKey, Proxy: proxy}).ListModels(r.Context())
 		if err != nil {
-			writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
+			writeJSON(w, 200, map[string]any{"ok": false, "error": sanitizeClientError(err.Error())})
 			return
 		}
 		writeJSON(w, 200, map[string]any{"ok": true, "models": models})

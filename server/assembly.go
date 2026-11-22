@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/traffic"
+	"github.com/Autumn-27/baize/agent"
+	"github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/traffic"
 	"github.com/Autumn-27/norma/skill"
 	actool "github.com/Autumn-27/norma/tool"
 )
@@ -380,6 +380,7 @@ func buildDomainReg(as *db.AssetStore) map[string]actool.CoreTool {
 	}
 	serverTS := agent.NewToolSet(nil, "")
 	serverTS.SetAssetStore(as, as.Companies())
+	serverTS.SetMemoryStore(as.Memories()) // save_memory / recall_memories
 	reg := make(map[string]actool.CoreTool)
 	for _, t := range serverTS.AllDomainTools() {
 		reg[t.Name()] = t

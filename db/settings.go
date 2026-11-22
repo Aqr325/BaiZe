@@ -21,6 +21,31 @@ func (d *DB) GetSetting(key string) (value string, ok bool, err error) {
 	return value, true, nil
 }
 
+// GetSecret reads a secret setting, decrypting transparently when a master key
+// is configured (see secret.go). Plaintext values pass through unchanged, so
+// existing deployments upgrade without losing their saved keys.
+func (d *DB) GetSecret(key string) (value string, ok bool, err error) {
+	value, ok, err = d.GetSetting(key)
+	if err != nil || !ok {
+		return value, ok, err
+	}
+	plain, err := OpenSecret(value)
+	if err != nil {
+		return "", true, err
+	}
+	return plain, true, nil
+}
+
+// SetSecret encrypts a secret setting when a master key is configured, then
+// upserts it. Empty values are stored as-is (clearing a key).
+func (d *DB) SetSecret(key, value string) error {
+	stored, err := SealSecret(value)
+	if err != nil {
+		return err
+	}
+	return d.SetSetting(key, stored)
+}
+
 // SetSetting upserts a setting value.
 func (d *DB) SetSetting(key, value string) error {
 	return d.SetSettingContext(context.Background(), key, value)

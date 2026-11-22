@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/baize/db"
 )
 
 // Scheduler drives P3 triggers: on each tick it fires due interval triggers and
@@ -51,8 +51,11 @@ func (sc *Scheduler) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			sc.s.reconcileConcurrency() // 并发上限:有空位就把排队任务补位启动
-			sc.step()
+			keepalive("scheduler", func() {
+				sc.s.pruneLogsTick(time.Now()) // server_logs 保留策略（每小时一次）
+				sc.s.reconcileConcurrency() // 并发上限:有空位就把排队任务补位启动
+				sc.step()
+			})
 		}
 	}
 }

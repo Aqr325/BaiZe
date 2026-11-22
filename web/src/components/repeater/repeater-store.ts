@@ -3,7 +3,6 @@
 import { toast } from "sonner";
 import { create } from "zustand";
 
-import { getLocalStorageValue } from "../../lib/local-storage.client";
 import type { RepeaterInitial } from "./repeater-http";
 import {
   addTab,
@@ -53,6 +52,14 @@ type Store = {
   seedFromEvidence: (initial: RepeaterInitial, meta?: RepeaterTab["source"], opts?: TabOptions) => string;
 };
 
+// Replay drafts may contain secrets: prefer sessionStorage so they die with the
+// tab. Fall back to localStorage where sessionStorage is unavailable (older
+// embedding environments and tests), and guard SSR where `window` is absent.
+function getStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage ?? window.localStorage ?? null;
+}
+
 let timer: ReturnType<typeof setTimeout> | undefined;
 let nextGeneration = 0;
 let formatMessage = (message: string) => message;
@@ -68,13 +75,15 @@ export function flush() {
   timer = undefined;
   const workspace = useRepeaterStore.getState().workspace;
   if (!workspace) return;
+  const storage = getStorage();
+  if (!storage) return;
   try {
-    window.localStorage.setItem(STORAGE_KEY, serializeWorkspace(workspace));
+    storage.setItem(STORAGE_KEY, serializeWorkspace(workspace));
   } catch {
     try {
       // Retry with only drafts and response metadata: evict all history, then
       // response bodies. Never shrink the request drafts, even if they exceed quota.
-      window.localStorage.setItem(STORAGE_KEY, serializeWorkspace(workspace, 0));
+      storage.setItem(STORAGE_KEY, serializeWorkspace(workspace, 0));
     } catch {
       toast.error(formatMessage("工作区保存失败，浏览器存储空间不足或不可用，请备份请求草稿"));
     }
@@ -125,7 +134,7 @@ export const useRepeaterStore = create<Store>((set, get) => {
     },
     hydrate: () => {
       if (get().workspace || typeof window === "undefined") return;
-      set({ workspace: deserializeWorkspace(getLocalStorageValue(STORAGE_KEY)) });
+      set({ workspace: deserializeWorkspace(getStorage()?.getItem(STORAGE_KEY) ?? null) });
       window.addEventListener("pagehide", flush);
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "hidden") flush();
@@ -219,6 +228,11 @@ export const useRepeaterStore = create<Store>((set, get) => {
     },
     clearWorkspace: () => {
       set({ inflight: {} });
+      // Drop any legacy localStorage copy left over from before the sessionStorage migration.
+      if (typeof window !== "undefined") {
+        window.localStorage?.removeItem?.(STORAGE_KEY);
+        window.sessionStorage?.removeItem?.(STORAGE_KEY);
+      }
       change(defaultWorkspace());
       flush();
     },

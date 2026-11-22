@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	pgdb "github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/traffic"
+	"github.com/Autumn-27/baize/agent"
+	pgdb "github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/traffic"
 )
 
 const taskArchivePollInterval = 2 * time.Second
@@ -63,8 +63,10 @@ func (s *Server) startTaskArchiveWorker() {
 		ticker := time.NewTicker(taskArchivePollInterval)
 		defer ticker.Stop()
 		for {
-			if err := s.runOneTaskArchiveJob(); err != nil {
-				log.Printf("[task-archive] worker: %v", err)
+			var jobErr error
+			keepalive("task-archive", func() { jobErr = s.runOneTaskArchiveJob() })
+			if jobErr != nil {
+				log.Printf("[task-archive] worker: %v", jobErr)
 			}
 			select {
 			case <-s.ctx.Done():
@@ -131,7 +133,7 @@ func (s *Server) archiveTask(job *pgdb.TaskArchive) (runErr error) {
 	if err := s.waitTaskQuiescent(drainCtx, taskID); err != nil {
 		return errors.New("任务仍有运行中的 Agent，请先暂停后重试归档")
 	}
-	if err := s.drainTaskSideQuestions(drainCtx, taskID); err != nil {
+	if err := s.side.drainTask(drainCtx, taskID); err != nil {
 		return err
 	}
 	task, err := s.m.pg.GetTask(job.TaskID)

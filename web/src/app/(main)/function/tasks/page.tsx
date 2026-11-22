@@ -32,6 +32,7 @@ import {
   PaperclipIcon,
   PauseIcon,
   PencilIcon,
+  DownloadIcon,
   PinIcon,
   PinOffIcon,
   PlayIcon,
@@ -354,6 +355,17 @@ function compareTasks(left: Task, right: Task, field: TaskSortField, direction: 
 
 export default function TasksPage() {
   const { t: translate, liveT } = useLiveTranslation();
+
+  // 任务清单导出（CSV，带 BOM 兼容 Excel；JSON 走同端点 format=json）。
+  async function exportTasksCsv() {
+    try {
+      await api.exportTasks("csv");
+      toast.success(translate("taskUI.exportStarted"));
+    } catch (e) {
+      toast.error(translate("taskUI.exportFailed", { v0: (e as Error).message }));
+    }
+  }
+
   const [activeTab, setActiveTab] = React.useState("current");
   const [tasks, setTasks] = React.useState<Task[]>([]);
   const [categories, setCategories] = React.useState<TaskCategory[]>([]);
@@ -1015,6 +1027,15 @@ export default function TasksPage() {
               <span className="text-muted-foreground text-xs tabular-nums">
                 {translate("taskUI.filteredCount", { visible: filtered.length, total: tasks.length })}
               </span>
+              <Button
+                size="sm"
+                variant="outline"
+                title={translate("taskUI.exportTasksCsv")}
+                onClick={() => void exportTasksCsv()}
+              >
+                <DownloadIcon data-icon="inline-start" />
+                {translate("taskUI.exportTasksCsv")}
+              </Button>
               {selectedIds.size > 0 && (
                 <>
                   <span className="text-xs tabular-nums">

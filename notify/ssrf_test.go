@@ -66,6 +66,30 @@ func TestDialGuardAllowsLoopbackWhenOptedIn(t *testing.T) {
 	}
 }
 
+// TestNotifyTransportIgnoresEnvironmentProxy 覆盖代理绕过拨号守卫的路径。
+// 若 Transport 保留了 ProxyFromEnvironment，请求会发给环境代理，守卫看到的
+// 拨号目标是代理地址，真实目标（可能明明是元数据地址）就绕过了检查。
+// 这里用假代理验证：哪怕环境里设了代理，投递也必须直连、绝不能打到代理上。
+func TestNotifyTransportIgnoresEnvironmentProxy(t *testing.T) {
+	var proxyHit bool
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		proxyHit = true
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer proxy.Close()
+
+	t.Setenv("HTTP_PROXY", proxy.URL)
+	t.Setenv("HTTPS_PROXY", proxy.URL)
+	// 假代理在环回地址上，TestMain 已全局打开逃生口，允许连到它。
+	_, err := doJSON(context.Background(), http.MethodGet, "http://example.invalid/hook", nil, nil)
+	if proxyHit {
+		t.Fatal("请求打到了环境代理——拨号守卫被代理绕过")
+	}
+	if err == nil {
+		t.Fatal("直连保留域名应解析失败（.invalid 不应可达）")
+	}
+}
+
 func TestIsBlockedDialIP(t *testing.T) {
 	blocked := []string{
 		"127.0.0.1", "127.1.2.3", "::1",

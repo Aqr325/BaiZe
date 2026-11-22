@@ -3,8 +3,8 @@ package server
 import (
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/baize/agent"
+	"github.com/Autumn-27/baize/db"
 )
 
 // 重试策略的服务端解析，见 docs/LLM重试设计.md。五层里：
@@ -77,6 +77,23 @@ func (e *Engine) modelErrorRetryPolicy() (retries int, backoff time.Duration) {
 		backoff = d
 	}
 	return retries, backoff
+}
+
+// callBudgetLimit resolves the per-intent total-call cap (layer-crossing budget,
+// not a sixth retry layer). 0/unset → built-in conservative default; negative →
+// disabled (returns 0 so NewCallBudget yields nil); positive → clamped value.
+func (e *Engine) callBudgetLimit() int {
+	if e == nil || e.m == nil || e.m.pg == nil {
+		return agent.DefaultIntentCallBudget
+	}
+	switch n := e.m.pg.LLMRetryPolicy().CallBudget(); {
+	case n == 0:
+		return agent.DefaultIntentCallBudget
+	case n < 0:
+		return 0 // 显式关闭
+	default:
+		return n
+	}
 }
 
 // emptyTurnNudgeLimit resolves how many empty-turn continuations one work may

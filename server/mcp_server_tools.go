@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/baize/agent"
+	"github.com/Autumn-27/baize/db"
 	actool "github.com/Autumn-27/norma/tool"
 )
 
@@ -116,7 +116,7 @@ func (s *Server) mcpTools() []mcpTool {
 		{
 			Name: "spawn_task", Scope: db.APIScopeTaskCreate,
 			Description: "新建任务并立即启动，返回 task_id。任务会对目标发起真实的安全测试，只能针对已获授权的目标。" +
-				"用 company_ids 关联企业、category_id 归入任务分类。",
+				"用 company_ids 关联企业、category_id 归入任务分类。传 event_id 可让同一事件重放只建一个任务（幂等）。",
 			Schema: objSchema(map[string]any{
 				"goal":              strParam("任务目标：要测什么、达成什么。目标地址(URL/域名/IP)写在这里"),
 				"description":       strParam("任务描述(简短标题)"),
@@ -127,6 +127,7 @@ func (s *Server) mcpTools() []mcpTool {
 				"parent_ref":        strParam("可选：父任务 id，做父子关联"),
 				"timeout_seconds":   intParam("可选：任务级超时(秒)，到点后收尾并结束；省略或 0 = 不限时"),
 				"seed_first_intent": map[string]any{"type": "boolean", "description": "可选：简单任务可开启，跳过首轮规划直接开始测试；默认 false"},
+				"event_id":          strParam("可选：幂等键。同一访问令牌重放同一 event_id 只建一个任务，返回已有任务；省略则每次都新建"),
 			}, "goal"),
 			Run: s.mcpSpawnTask,
 		},
@@ -396,12 +397,19 @@ func (s *Server) mcpSpawnTask(_ context.Context, token *db.APIToken, in json.Raw
 		ParentRef       json.RawMessage `json:"parent_ref"`
 		TimeoutSeconds  int             `json:"timeout_seconds"`
 		SeedFirstIntent bool            `json:"seed_first_intent"`
+		// EventID 是调用方的幂等键：同一 token 重放同一事件只建一个任务。
+		// 留空则每次调用都新建（保持既有行为）。
+		EventID string `json:"event_id"`
 	}
 	if err := json.Unmarshal(in, &a); err != nil {
 		return actool.Errorf("参数无效: " + err.Error()), nil
 	}
 	if strings.TrimSpace(a.Goal) == "" {
 		return actool.Errorf("goal 为必填"), nil
+	}
+	// event_id 截断到合理长度，防止调用方用超长键撑爆索引。
+	if len(a.EventID) > 256 {
+		a.EventID = a.EventID[:256]
 	}
 	if a.CategoryID != nil && *a.CategoryID <= 0 {
 		a.CategoryID = nil
@@ -428,10 +436,29 @@ func (s *Server) mcpSpawnTask(_ context.Context, token *db.APIToken, in json.Raw
 		req.LLMProfileIDs = []int64{id}
 	}
 
-	// Quota check and creation are one critical section per server: two requests
-	// on the same token must not both pass the check off the same count.
+	// Quota check, idempotency lookup and creation are one critical section per
+	// server: two requests on the same token must not both pass the check off the
+	// same count, nor both create a task for the same event id.
 	s.mcpCreateMu.Lock()
 	defer s.mcpCreateMu.Unlock()
+
+	// 幂等命中：同一 token + event_id 此前建过任务，直接返回既有任务，
+	// 不查限额（重放不该再消耗额度）、不新建（避免重复发起真实安全测试）。
+	if a.EventID != "" {
+		if existingID, found, err := s.m.pg.APITokenTaskByEvent(token.ID, a.EventID); err != nil {
+			return actool.Errorf("幂等查询失败: " + err.Error()), nil
+		} else if found {
+			// 仍须通过 token 的企业范围校验：不可因重放读到无权访问的任务。
+			existing, ok := s.mcpLookupTask(token, strconv.FormatInt(existingID, 10))
+			if !ok {
+				return actool.Errorf("该事件此前建过任务，但当前令牌无权访问"), nil
+			}
+			return jsonResult(map[string]any{
+				"task_id": existing.ID, "status": s.resolvedTaskStatus(existing), "idempotent": true,
+			})
+		}
+	}
+
 	if msg, err := s.mcpCheckQuota(token); err != nil {
 		return actool.Errorf("限额检查失败: " + err.Error()), nil
 	} else if msg != "" {
@@ -447,9 +474,14 @@ func (s *Server) mcpSpawnTask(_ context.Context, token *db.APIToken, in json.Raw
 		_ = s.m.PG().SetParentRef(taskID, parentRef)
 	}
 	out := map[string]any{"task_id": t.ID, "status": s.resolvedTaskStatus(t)}
-	if err := s.m.pg.RecordAPITokenTask(token.ID, taskID); err != nil {
+	// 带 event_id 记录：唯一索引兜住跨进程并发下的重复事件（进程内已由
+	// mcpCreateMu 串行化）。inserted=false 表示同一事件被另一进程抢先记录。
+	inserted, err := s.m.pg.RecordAPITokenTaskEvent(token.ID, taskID, a.EventID)
+	if err != nil {
 		// The task is already running; losing the quota row must not hide it.
 		out["warning"] = "任务已创建，但限额记录写入失败: " + err.Error()
+	} else if !inserted && a.EventID != "" {
+		out["idempotent_warning"] = "同一事件可能已被另一进程记录，请核对任务列表避免重复"
 	}
 	return jsonResult(out)
 }

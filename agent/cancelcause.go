@@ -53,6 +53,8 @@ var (
 		"用户删除了正在运行的 Worker。本次调用被取消；Worker 退出写入区后，服务端按用户选择的删除模式处理该意图——假删除仅标记为已删除并保留全部产出，真删除会级联移除该意图及仅由它支撑的下游节点")
 	AbortWorkFinished = cause("work_finished", "Worker 已正常结束并释放 context",
 		"Worker 已正常结束，引擎在 detachWork 中释放其 context 资源。这不是运行中断；若它出现在中断消息中，说明取消与收场事件发生了竞态")
+	AbortCallBudgetExhausted = cause("call_budget_exhausted", "单意图 LLM 调用预算耗尽",
+		"这条意图在五层重试中累计的 LLM HTTP 调用已达上限，判定为供应商持续失败导致的重试失控并熔断，避免产生失控的计费调用；已写入的事实与资产保留")
 	AbortPausedRaceGuard = cause("paused_race_guard", "任务暂停期间拒绝启动新运行",
 		"任务处于暂停状态时，引擎拒绝发出新的执行 context，用于防止 claim 与暂停之间的竞态导致 Worker 继续启动；已领取的意图会退回 frontier")
 

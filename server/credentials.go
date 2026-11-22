@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/llmrec"
-	"github.com/Autumn-27/artex/traffic"
+	"github.com/Autumn-27/baize/agent"
+	"github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/llmrec"
+	"github.com/Autumn-27/baize/traffic"
 	"github.com/Autumn-27/norma/transcript"
 )
 
@@ -53,24 +53,26 @@ func (s *Server) runCredentialProcessor() {
 		case <-ticker.C:
 		case <-s.credentialWake:
 		}
-		if !s.m.pg.GetBool(db.SettingTaskIntelligence, false) || !s.m.pg.GetBool(db.SettingCredentialAgent, false) {
-			continue
-		}
-		a, err := s.m.pg.GetAgentByKey(db.CredentialAgentKey)
-		if err != nil || a == nil || !a.Enabled {
-			continue
-		}
-		item, err := s.m.pg.ClaimCredentialJob(s.ctx, s.m.pg.GetBool(db.SettingCredentialTraffic, false), 0)
-		if err != nil {
-			if s.ctx.Err() == nil {
-				log.Printf("[credentials] queue: %v", err)
+		keepalive("credentials", func() {
+			if !s.m.pg.GetBool(db.SettingTaskIntelligence, false) || !s.m.pg.GetBool(db.SettingCredentialAgent, false) {
+				return
 			}
-			continue
-		}
-		if item == nil {
-			continue
-		}
-		s.processCredentialJob(s.ctx, item)
+			a, err := s.m.pg.GetAgentByKey(db.CredentialAgentKey)
+			if err != nil || a == nil || !a.Enabled {
+				return
+			}
+			item, err := s.m.pg.ClaimCredentialJob(s.ctx, s.m.pg.GetBool(db.SettingCredentialTraffic, false), 0)
+			if err != nil {
+				if s.ctx.Err() == nil {
+					log.Printf("[credentials] queue: %v", err)
+				}
+				return
+			}
+			if item == nil {
+				return
+			}
+			s.processCredentialJob(s.ctx, item)
+		})
 	}
 }
 func (s *Server) processCredentialJob(parent context.Context, item *db.Intelligence) {

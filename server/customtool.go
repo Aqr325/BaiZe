@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/internal/httpidentity"
+	"github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/internal/httpidentity"
 	"github.com/Autumn-27/norma/permission"
 	actool "github.com/Autumn-27/norma/tool"
 )
@@ -150,7 +150,7 @@ func (s *Server) pgTestCustomTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req testToolReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, "无效的请求体")
 		return
 	}

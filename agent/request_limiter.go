@@ -132,5 +132,13 @@ func (t rateLimitedTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	if err := t.limiter.wait(req.Context()); err != nil {
 		return nil, err
 	}
+	// Per-intent total-call budget: the transport is the one choke point every
+	// retry layer passes through, so this counts real HTTP attempts across all
+	// five layers. Spend fires the work-context cancel on exhaustion, which every
+	// layer honors (ctx.Err() != nil stops SDK/server retries). No budget on ctx
+	// means no cap — e.g. one-off calls outside a worker intent.
+	if err := CallBudgetFromContext(req.Context()).Spend(); err != nil {
+		return nil, err
+	}
 	return t.base.RoundTrip(req)
 }

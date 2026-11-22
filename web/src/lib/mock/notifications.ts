@@ -30,6 +30,11 @@ export function createMockNotifications() {
           sent_today: 0,
           backlog_age_ms: 0,
         },
+        engine: {
+          state: "ok",
+          last_tick_at: new Date().toISOString(),
+          consecutive_failures: 0,
+        },
       };
       return structuredClone(meta);
     }

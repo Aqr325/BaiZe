@@ -24,6 +24,18 @@ func (d *DB) InsertLog(level, tag, text string) (int64, error) {
 	return id, err
 }
 
+// PruneLogsBefore deletes server_logs rows created before cutoff, returning the
+// number of rows removed. server_logs 只有写入路径没有保留策略时，无人值守的
+// 长期运行会让它无限膨胀；常驻循环每小时调用一次本方法控制表体积。
+func (d *DB) PruneLogsBefore(cutoff time.Time) (int64, error) {
+	res, err := d.ExecContext(context.Background(),
+		"DELETE FROM server_logs WHERE created_at < $1", cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // RecentLogs returns the most recent limit rows, oldest-first.
 func (d *DB) RecentLogs(limit int) ([]*DBLog, error) {
 	rows, err := d.QueryContext(context.Background(),

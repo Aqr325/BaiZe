@@ -3163,8 +3163,8 @@ const promptVars: PromptVar[] = [
 ];
 
 const promptVersions: PromptVersion[] = [
-  { version: 3, ts: T("2026-07-25T10:00:00Z"), note: "加强越权探测引导", template_text: "你是 ARTEX 的规划者……" },
-  { version: 2, ts: T("2026-07-20T10:00:00Z"), note: "初版微调", template_text: "你是 ARTEX 的规划者(v2)……" },
+  { version: 3, ts: T("2026-07-25T10:00:00Z"), note: "加强越权探测引导", template_text: "你是 白泽 的规划者……" },
+  { version: 2, ts: T("2026-07-20T10:00:00Z"), note: "初版微调", template_text: "你是 白泽 的规划者(v2)……" },
 ];
 
 export function agentDetail(key: string): AgentDetail {

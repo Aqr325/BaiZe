@@ -1,5 +1,5 @@
 // Package agent wires real LLM-driven planner and work agents (on top of the
-// agent-core SDK) to the dual SQLite graph. See docs/ARTEX-架构设计.md
+// agent-core SDK) to the dual SQLite graph. See docs/BaiZe-架构设计.md
 // §4.3 (planner) and §4.4 (work agent).
 //
 // Provider configuration is read from the environment so the system runs with
@@ -16,11 +16,12 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/llmhttp"
-	"github.com/Autumn-27/artex/llmrec"
+	"github.com/Autumn-27/baize/llmhttp"
+	"github.com/Autumn-27/baize/llmrec"
 	"github.com/Autumn-27/norma/agentcore"
 	"github.com/Autumn-27/norma/compaction"
 	"github.com/Autumn-27/norma/llm"
@@ -351,6 +352,39 @@ func IsQuotaExhaustedMessage(message string) bool {
 		!strings.Contains(message, "too many requests")
 }
 
+const (
+	// LLMCallTimeoutEnv overrides the per-call deadline (seconds). It is independent
+	// of the task-level runSeconds: a stalled provider must fail even on tasks that
+	// have no task deadline at all.
+	LLMCallTimeoutEnv     = "ARTEX_LLM_CALL_TIMEOUT_SECONDS"
+	defaultLLMCallTimeout = 5 * time.Minute
+)
+
+func llmCallTimeout() time.Duration {
+	v := strings.TrimSpace(os.Getenv(LLMCallTimeoutEnv))
+	if v == "" {
+		return defaultLLMCallTimeout
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 || n > 3600 {
+		return defaultLLMCallTimeout
+	}
+	return time.Duration(n) * time.Second
+}
+
+// cancelOnCloseBody keeps the per-call deadline alive while an SSE body streams,
+// and releases it as soon as the caller closes the body. Without this wrapper a
+// cancel deferred by RoundTrip would kill legitimate long streams immediately.
+type cancelOnCloseBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *cancelOnCloseBody) Close() error {
+	defer b.cancel()
+	return b.ReadCloser.Close()
+}
+
 // quotaAwareTransport preserves Norma's normal retry behavior except for a 429
 // whose body explicitly says the account quota/balance is exhausted. Norma's
 // retry loop treats every 429 as transient; normalizing only that response to
@@ -365,6 +399,12 @@ type quotaAwareTransport struct {
 }
 
 func (t quotaAwareTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// One deadline per real HTTP attempt, layered on top of the caller's context.
+	// Cancelling only this child leaves the work context intact so the SDK's retry
+	// logic can still decide what to do with a timed-out attempt.
+	callCtx, cancel := context.WithTimeout(req.Context(), llmCallTimeout())
+	req = req.WithContext(callCtx)
+
 	// Custom session-id header: name is user-configured, value is THIS run's
 	// session id (norma stashes it on the context via transcript.WithSessionID).
 	// Stable across a session's turns and distinct across sessions — exactly what
@@ -383,12 +423,18 @@ func (t quotaAwareTransport) RoundTrip(req *http.Request) (*http.Response, error
 
 	resp, err := t.base.RoundTrip(req)
 	if err != nil || resp == nil {
+		cancel()
 		return resp, err
 	}
 	// Tee rather than read: a 200 is an SSE stream that must keep streaming. The
 	// 429 branch below reads through this wrapper, so its body lands in the
-	// capture before being replaced.
-	resp.Body = capt.TeeResponse(resp.StatusCode, resp.Body)
+	// capture before being replaced. The deadline wrapper sits under the tee so
+	// closing either layer releases the timer.
+	respBody := resp.Body
+	if respBody == nil {
+		respBody = io.NopCloser(strings.NewReader(""))
+	}
+	resp.Body = capt.TeeResponse(resp.StatusCode, &cancelOnCloseBody{ReadCloser: respBody, cancel: cancel})
 
 	if resp.StatusCode != http.StatusTooManyRequests {
 		return resp, nil

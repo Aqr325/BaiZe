@@ -5,15 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept"
+	"github.com/Autumn-27/baize/agent"
+	"github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/intercept"
 	"github.com/Autumn-27/norma/harness"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -248,6 +249,13 @@ func (e *Engine) registerTaskRoutines(parent context.Context, taskID string, cou
 func runTaskRoutine(rt *taskRuntime, fn func(context.Context)) {
 	go func() {
 		defer rt.wg.Done()
+		// A panic here would otherwise take down the whole process; the routine
+		// settles instead and the task stops at its current round.
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[engine] task routine panic recovered: %v\n%s", r, debug.Stack())
+			}
+		}()
 		fn(rt.ctx)
 	}()
 }
@@ -1111,6 +1119,12 @@ func (e *Engine) runIntent(ctx context.Context, t *Task, name string, worker *ag
 	// per-work child context so the planner's kill_work can stop just this work.
 	workCtx, workCancel := context.WithCancelCause(ectx)
 	e.registerWork(intent.ID, workCancel)
+	// 单意图跨五层调用预算：挂在 workCtx 上，与 workCancel 绑定，耗尽即取消本意图
+	// 的整个调用链——SDK 建连/空响应重试、同 provider 窗口、profile 故障转移、
+	// model_error 重跑都检查 ctx.Err()，一次熔断全部停下，避免计费失控。
+	if limit := e.callBudgetLimit(); limit > 0 {
+		workCtx = agent.WithCallBudget(workCtx, agent.NewCallBudget(limit, workCancel))
+	}
 	// wrap the guard hooks so steer_work can inject a mid-run course-correction
 	// for THIS intent (drained before the worker's next tool call).
 	iid := intent.ID

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/intercept"
+	"github.com/Autumn-27/baize/intercept"
 	"github.com/Autumn-27/norma/hook"
 )
 
@@ -34,7 +34,34 @@ type Guard struct {
 	attrib      map[string]int // failure attribution counts (Observer / G5)
 	reg         *hook.Registry
 	interceptor *intercept.Interceptor // optional; nil disables user-configured rules
+	// hasDenyConstraint reports whether this task has any deny-class operation
+	// constraint. When set and true, every tool call is escalated to human
+	// approval so a natural-language "forbidden operation" boundary is enforced
+	// by the host instead of relying solely on the model obeying its prompt.
+	// Optional: nil keeps the previous rule-only behavior (chat, tests).
+	hasDenyConstraint func() bool
+	// fence is the optional 允许清单+越界授权 hard boundary. When active (has ≥1
+	// structured allow rule), it takes precedence over the legacy deny-escalation:
+	// in-scope calls run automatically, out-of-bounds calls require 越界授权,
+	// forbidden calls are blocked. nil = no fence (legacy behavior).
+	fence *Fence
+	// fenceLoader rebuilds the fence from live constraints on each call (runtime
+	// edits take effect immediately, matching the deny check's live semantics).
+	// Preferred over a static `fence` when set. nil = no live fence.
+	fenceLoader func() *Fence
 }
+
+// SetDenyConstraintCheck installs a live check for this task's deny constraints.
+// It is a callback (not a cached snapshot) because constraints are editable at
+// runtime; each tool call re-reads the current answer.
+func (g *Guard) SetDenyConstraintCheck(fn func() bool) { g.hasDenyConstraint = fn }
+
+// SetFence installs the task's 允许清单+越界授权 boundary. nil disables the fence.
+func (g *Guard) SetFence(f *Fence) { g.fence = f }
+
+// SetFenceLoader installs a live fence builder, re-read from DB each tool call so
+// runtime constraint edits take effect immediately. Overrides a static SetFence.
+func (g *Guard) SetFenceLoader(fn func() *Fence) { g.fenceLoader = fn }
 
 // New creates a Guard without user-configured intercept rules (used for pentest
 // tasks where the Interceptor is not yet available).
@@ -78,9 +105,66 @@ func (g *Guard) preToolUse(ctx context.Context, ev hook.Event) hook.Result {
 	return g.applyIntercept(ctx, ev)
 }
 
-// applyIntercept evaluates user-configured intercept rules against the tool call.
-// Both rules and the fallback judge receive the complete tool input.
+// applyIntercept evaluates the safety boundary against the tool call.
+// 优先级（从严到宽）：
+//  1. Fence 激活时（任务声明了结构化允许清单）：用户 deny 规则 → Fence 判定
+//     （Forbidden=硬拦 / OutOfBounds=越界授权 / InScope=放行）；
+//  2. 旧「deny 清单→全量升级人工审批」：无 Fence 时的兼容路径；
+//  3. 用户配置的拦截规则 + LLM 裁判兜底（ruleTail）。
 func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
+	ctx = intercept.WithCall(ctx, ev.ToolName, ev.Input)
+	convID := intercept.ConvIDFromContext(ctx)
+
+	// 取当前 Fence：live fenceLoader（每次现读，约束可运行时增删）优先于静态 SetFence。
+	fence := g.fence
+	if g.fenceLoader != nil {
+		fence = g.fenceLoader()
+	}
+
+	// --- 1. Fence 激活：任务级硬边界（允许清单+越界授权）。 ---
+	if fence != nil && fence.Active() {
+		// 用户配置 deny 规则最严先判（与 Fence 禁止清单同级硬约束）。
+		if g.interceptor != nil && g.interceptor.IsToolEnabled(ev.ToolName) {
+			if dec, matched := g.interceptor.Match(ev.ToolName, ev.Input); matched && dec.Action == "deny" {
+				g.interceptor.Log(ctx, convID, dec, ev.ToolName, ev.Input, "denied")
+				return g.block(ev.ToolName, systemBlockMessage(dec.Message), "")
+			}
+		}
+		switch fence.Classify(ev.ToolName, ev.Input) {
+		case VerdictForbidden:
+			return g.block(ev.ToolName, systemBlockMessage("命中操作禁止清单（Fence 硬拦截）"), "")
+		case VerdictOutOfBounds:
+			surface := fence.SurfaceFor(ev.ToolName, ev.Input)
+			if fence.IsAuthorized(surface) {
+				return hook.Result{} // 已越界授权 → 放行
+			}
+			if g.interceptor == nil {
+				return g.block(ev.ToolName, systemBlockMessage("越界调用但平台无审批链路，按安全默认拦截"), "")
+			}
+			return g.fenceAsk(ctx, ev, fence, surface)
+		case VerdictInScope:
+			// 允许清单内 → 落到规则尾部（ask/allow 操作安全规则仍生效）。
+		}
+		return g.ruleTail(ctx, ev)
+	}
+
+	// --- 2. 无 Fence（或未激活）：旧「deny 清单→全量升级人工审批」。 ---
+	if g.hasDenyConstraint != nil && g.hasDenyConstraint() && g.interceptor != nil {
+		if dec, matched := g.interceptor.Match(ev.ToolName, ev.Input); matched && dec.Action == "deny" {
+			g.interceptor.Log(ctx, convID, dec, ev.ToolName, ev.Input, "denied")
+			return g.block(ev.ToolName, systemBlockMessage(dec.Message), "")
+		}
+		return g.askWithDecision(ctx, ev, intercept.Decision{
+			Action:   "ask",
+			RuleName: "任务禁止类操作约束",
+			Message:  "本任务声明了禁止类操作约束，请人工确认本次调用是否越过约束边界",
+		})
+	}
+	return g.ruleTail(ctx, ev)
+}
+
+// ruleTail 是既有「用户配置拦截规则 + LLM 裁判兜底」路径，与旧逻辑一致。
+func (g *Guard) ruleTail(ctx context.Context, ev hook.Event) hook.Result {
 	if g.interceptor == nil {
 		return hook.Result{}
 	}
@@ -88,6 +172,7 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 		return hook.Result{}
 	}
 	ctx = intercept.WithCall(ctx, ev.ToolName, ev.Input)
+	convID := intercept.ConvIDFromContext(ctx)
 	dec, matched := g.interceptor.Match(ev.ToolName, ev.Input)
 	if !matched {
 		// No rule matched. Ask the LLM fallback judge (if enabled); when it is off
@@ -101,29 +186,54 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 	switch dec.Action {
 	case "deny":
 		// 观测:deny 命中不阻塞审批,直接记一条 denied（历史/任务拦截页可见）。
-		g.interceptor.Log(ctx, intercept.ConvIDFromContext(ctx), dec, ev.ToolName, ev.Input, "denied")
+		g.interceptor.Log(ctx, convID, dec, ev.ToolName, ev.Input, "denied")
 		return g.block(ev.ToolName, systemBlockMessage(dec.Message), "")
 	case "allow":
 		// Record explicit rule and model approvals so review details remain auditable.
-		g.interceptor.Log(ctx, intercept.ConvIDFromContext(ctx), dec, ev.ToolName, ev.Input, "allowed")
+		g.interceptor.Log(ctx, convID, dec, ev.ToolName, ev.Input, "allowed")
 		return hook.Result{}
 	case "ask":
-		// If the worker context is already cancelled (task stopped / killed), block
-		// immediately without creating a pending record — avoids orphaned DB entries
-		// and makes execOne complete fast, reducing the race against drainSynthetic.
-		if ctx.Err() != nil {
-			return g.block(ev.ToolName, systemBlockMessage("工作已取消，平台安全管控阻止执行"), "")
-		}
-		convID := intercept.ConvIDFromContext(ctx)
-		if !g.interceptor.HandleAsk(ctx, convID, dec, ev.ToolName, ev.Input) {
-			return g.block(ev.ToolName, systemBlockMessage("人工审批未通过（用户拒绝或审批超时）"), "")
-		}
-		return hook.Result{}
+		return g.askWithDecision(ctx, ev, dec)
 	}
 	return hook.Result{}
 }
 
-// systemBlockMessage frames an intercept block as an ARTEX platform-governance
+// fenceAsk 把一次越界调用转「越界授权」人工审批；授权通过后记录越界授权，
+// 相同 surface 的后续调用不再重复询问。
+func (g *Guard) fenceAsk(ctx context.Context, ev hook.Event, fence *Fence, surface string) hook.Result {
+	if ctx.Err() != nil {
+		return g.block(ev.ToolName, systemBlockMessage("工作已取消，平台安全管控阻止执行"), "")
+	}
+	convID := intercept.ConvIDFromContext(ctx)
+	dec := intercept.Decision{
+		Action:   "ask",
+		RuleName: "越界授权",
+		Message:  "本次调用超出允许清单（越界），需人工越界授权后才可执行",
+	}
+	if !g.interceptor.HandleAsk(ctx, convID, dec, ev.ToolName, ev.Input) {
+		return g.block(ev.ToolName, systemBlockMessage("越界授权未通过（用户拒绝或审批超时）"), "")
+	}
+	// 授权通过 → 记录越界授权（AuthzStore 持久化），相同 surface 不再询问。
+	_ = fence.Authorize(surface, ev.ToolName, ev.Input)
+	return hook.Result{}
+}
+
+// askWithDecision 把一次工具调用转人工审批（复用 HandleAsk 的完整链路）。
+func (g *Guard) askWithDecision(ctx context.Context, ev hook.Event, dec intercept.Decision) hook.Result {
+	// If the worker context is already cancelled (task stopped / killed), block
+	// immediately without creating a pending record — avoids orphaned DB entries
+	// and makes execOne complete fast, reducing the race against drainSynthetic.
+	if ctx.Err() != nil {
+		return g.block(ev.ToolName, systemBlockMessage("工作已取消，平台安全管控阻止执行"), "")
+	}
+	convID := intercept.ConvIDFromContext(ctx)
+	if !g.interceptor.HandleAsk(ctx, convID, dec, ev.ToolName, ev.Input) {
+		return g.block(ev.ToolName, systemBlockMessage("人工审批未通过（用户拒绝或审批超时）"), "")
+	}
+	return hook.Result{}
+}
+
+// systemBlockMessage frames an intercept block as a BaiZe platform-governance
 // decision so the agent does not mistake it for a target-side defense.
 //
 // The bare reasons ("禁止执行此工具" / "用户拒绝") read exactly like a WAF/403 on
@@ -136,7 +246,7 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 // Audit/history rows keep the raw reason (see Interceptor.Log); only the
 // model-facing tool_result carries this framing.
 func systemBlockMessage(reason string) string {
-	return "【ARTEX 平台管控·非目标防御】此调用被平台拦截。" +
+	return "【BaiZe 平台管控·非目标防御】此调用被平台拦截。" +
 		"原因：" + reason + "。此操作被禁止。"
 }
 

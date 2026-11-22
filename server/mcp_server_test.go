@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/mcphttp"
+	"github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/mcphttp"
 	"golang.org/x/crypto/bcrypt"
 )
 

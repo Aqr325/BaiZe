@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/internal/httpidentity"
+	"github.com/Autumn-27/baize/internal/httpidentity"
 )
 
 // sumsAsset 是 release.yml 生成的校验和清单，覆盖 Release 里全部 zip。

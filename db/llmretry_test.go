@@ -143,3 +143,19 @@ func TestLLMRetryPolicyRoundTrip(t *testing.T) {
 		t.Fatalf("unset policy=%+v, want zero", got)
 	}
 }
+
+func TestCallBudgetClamped(t *testing.T) {
+	cases := []struct{ in, want int }{
+		{-5, -1},               // anything below -1 → -1 (disabled)
+		{-1, -1},               // explicit disable
+		{0, 0},                 // unset → built-in default at the caller
+		{200, 200},             // valid
+		{99999, maxCallBudget}, // above cap → clamped
+	}
+	for _, c := range cases {
+		got := (LLMRetryPolicy{Budget: c.in}).Clamped().CallBudget()
+		if got != c.want {
+			t.Errorf("Budget=%d clamped to %d, want %d", c.in, got, c.want)
+		}
+	}
+}

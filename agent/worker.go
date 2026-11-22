@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept"
+	"github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/intercept"
 	"github.com/Autumn-27/norma/agentcore"
 	"github.com/Autumn-27/norma/harness"
 	"github.com/Autumn-27/norma/llm"
@@ -76,7 +76,15 @@ type Worker struct {
 	// maxTokensFn resolves the per-reply output cap in tokens, on the same
 	// per-run basis. nil or 0 = send no cap and let the endpoint decide.
 	maxTokensFn func() int
+	// memoryTaskID is the task this worker belongs to, used to resolve the
+	// long-term memories injected into its system prompt. 0 = none (no memory
+	// block beyond global ones).
+	memoryTaskID int64
 }
+
+// SetMemoryTaskID wires the task whose memories get injected into this agent's
+// system prompt. Wired once at construction, per task.
+func (w *Worker) SetMemoryTaskID(taskID int64) { w.memoryTaskID = taskID }
 
 // WorkerSessionID returns the stable transcript key used by a worker intent.
 // Worker slots are reusable, so the intent id (rather than work#N) is the
@@ -278,8 +286,8 @@ func ensureRunDir(base string, taskID, intentID int64) string {
 // cmdOutDir is the SDK large-tool-output spill dir under an agent's run dir.
 func cmdOutDir(dir string) string { return filepath.Join(dir, "cmd-output") }
 
-func workerSystem(proxyAddr, caCert, dataDir, runDir string) string {
-	body := renderSystem("worker", workerDefaultTmpl, WorkerVars{ProxyAddr: proxyAddr, DataDir: dataDir, Now: nowStr()})
+func workerSystem(proxyAddr, caCert, dataDir, runDir string, taskID int64) string {
+	body := renderSystem("worker", workerDefaultTmpl, WorkerVars{ProxyAddr: proxyAddr, DataDir: dataDir, Now: nowStr(), TaskID: taskID})
 	// caCert is present only when the recording MITM is on, which is exactly when
 	// the traffic_* tools are registered — so it gates the traffic-tool note.
 	// Optional finding guidance is added for every role after tool resolution.
@@ -359,6 +367,7 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	tsx.SetCoverageEnabled(coverageEnabled)
 	if as != nil {
 		tsx.SetAssetStore(as, as.Companies())
+		tsx.SetMemoryStore(as.Memories()) // save_memory / recall_memories
 	}
 	tsx.SetOwnerNode(intent.ID)         // assets this worker discovers anchor to its intent → visible to the task
 	tsx.SetEnrich(enr)                  // async DNS/HTTP auto-completion for assets this worker writes
@@ -390,7 +399,7 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	if w.proxyAddrFn != nil {
 		proxyAddr = w.proxyAddrFn()
 	}
-	sysBody := workerSystem(proxyAddr, w.proxyCACert, w.workDir, runDir)
+	sysBody := workerSystem(proxyAddr, w.proxyCACert, w.workDir, runDir, w.memoryTaskID)
 	if w.wantConstraints() {
 		sysBody += constraintBlock(ts) // 操作约束(若有)注入系统提示,worker 执行时严格遵守
 	}
@@ -497,7 +506,7 @@ func (w *Worker) execute(ctx context.Context, name string, taskID int64, as *db.
 	// restarting from scratch.
 	alreadyRecorded := false
 	if w.tx != nil {
-		_ = s.Resume(opts.SessionID)
+		resumeSession(s, opts.SessionID, "worker")
 		alreadyRecorded = requestID != "" && hasWorkerChatMessage(s.Messages(), requestID)
 		if len(s.Messages()) > 0 && message == "" {
 			seedUnlockFromHistory(s.Messages(), def.UnlockSkill)

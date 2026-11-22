@@ -22,6 +22,9 @@ function client(response) {
     URLSearchParams,
     window: { location },
     document,
+    AbortController,
+    setTimeout,
+    clearTimeout,
     localStorage: { getItem: () => "test-token", removeItem: (key) => removed.push(key) },
     require: (id) => {
       if (id === "@/lib/mock/enabled") return { MOCK: false };
@@ -80,8 +83,8 @@ test("unauthorized requests still clear authentication and return to sign-in", a
   assert.equal(location.href, "/login");
 });
 
-test("unauthorized responses retain the server's specific authentication code", async () => {
-  const { http } = client({
+test("business 401 keeps the server code and does not clear authentication", async () => {
+  const { http, location, removed, document } = client({
     ok: false,
     status: 401,
     json: async () => ({ error: "当前密码错误", code: "current_password_incorrect" }),
@@ -91,4 +94,28 @@ test("unauthorized responses retain the server's specific authentication code", 
     assert.equal(error.message, "当前密码错误");
     return true;
   });
+  assert.deepEqual(removed, []);
+  assert.equal(document.cookie, "");
+  assert.equal(location.href, "/setup");
+});
+
+test("login 401 does not redirect even with a session-shaped code", async () => {
+  const { http, location, removed, document } = client({
+    ok: false,
+    status: 401,
+    json: async () => ({ error: "用户名或密码错误", code: "unauthorized" }),
+  });
+  await assert.rejects(http("/auth/login"), (error) => error.code === "unauthorized");
+  assert.deepEqual(removed, []);
+  assert.equal(document.cookie, "");
+  assert.equal(location.href, "/setup");
+});
+
+test("an already-aborted request does not clear authentication on a late 401", async () => {
+  const { http, location, removed } = client({ ok: false, status: 401 });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(http("/private", { signal: controller.signal }), (error) => error.code === "unauthorized");
+  assert.deepEqual(removed, []);
+  assert.equal(location.href, "/setup");
 });

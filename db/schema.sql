@@ -295,6 +295,29 @@ CREATE TABLE IF NOT EXISTS task_constraints (
 );
 CREATE INDEX IF NOT EXISTS idx_task_constraints_exp ON task_constraints(exploration_id);
 
+-- Fence 升级（允许清单+越界授权）：给约束加结构化字段，使边界可机器判定。
+-- match: 规则作用的表面(tool|command|host|path|port|all)，NULL=自由文本(旧行为，仅注入提示词走 AI 自检)。
+-- pattern: 该表面上的 glob（如 "*.example.com"、"/data/**"、"curl*"），NULL=自由文本。
+-- 仅当任务存在 ≥1 条结构化 allow 规则时，Fence 才激活（允许清单=deny-by-default）；
+-- 无结构化规则时回落旧「deny 清单→全量升级人工审批」行为，保持向后兼容。
+ALTER TABLE task_constraints ADD COLUMN IF NOT EXISTS match TEXT;
+ALTER TABLE task_constraints ADD COLUMN IF NOT EXISTS pattern TEXT;
+
+-- task_fence_authz: 越界授权记录。越界调用经人工审批通过后落一条，按 surface 记忆，
+-- 相同 surface 的后续调用不再重复询问。可设置过期时间；NULL=长期有效。
+CREATE TABLE IF NOT EXISTS task_fence_authz (
+    id             BIGSERIAL PRIMARY KEY,
+    exploration_id BIGINT NOT NULL REFERENCES explorations(id) ON DELETE CASCADE,
+    surface        TEXT NOT NULL,          -- 例如 "host:*.example.com" | "tool:Bash" | "command:rm*"
+    tool           TEXT,                   -- 首次被授权的工具名
+    input_digest   TEXT,                   -- 首次授权输入的短摘要（FNV-1a，授权记忆去重用）
+    granted_by     TEXT,                   -- 授权人（人工）
+    note           TEXT,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at     TIMESTAMPTZ             -- NULL=长期有效
+);
+CREATE INDEX IF NOT EXISTS idx_fence_authz_exp ON task_fence_authz(exploration_id);
+
 CREATE TABLE IF NOT EXISTS activity (
     id                 BIGSERIAL PRIMARY KEY,
     exploration_id     BIGINT NOT NULL REFERENCES explorations(id) ON DELETE CASCADE,
@@ -1683,9 +1706,18 @@ CREATE TABLE IF NOT EXISTS api_token_tasks (
     token_id   BIGINT NOT NULL REFERENCES api_tokens(id) ON DELETE CASCADE,
     task_id    BIGINT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- 幂等键：外部系统重放同一事件(MCP 客户端超时重发/webhook 重试)时，
+    -- 同 token + 同 event_id 只能建一个任务，避免重复发起真实安全测试。
+    -- 空串表示非幂等调用，不受唯一约束（保持既有行为）。
+    event_id   TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (token_id, task_id)
 );
 CREATE INDEX IF NOT EXISTS idx_api_token_tasks_recent ON api_token_tasks(token_id, created_at DESC);
+-- 存量库迁移：老库的表没有 event_id 列，CREATE TABLE IF NOT EXISTS 不会补；
+-- 启动时显式 ADD（幂等），必须排在下方唯一索引之前——否则存量库建索引时列还不存在。
+ALTER TABLE api_token_tasks ADD COLUMN IF NOT EXISTS event_id TEXT NOT NULL DEFAULT '';
+-- 局部唯一索引：只对非空 event_id 去重；一个事件重复到达返回同一 task。
+CREATE UNIQUE INDEX IF NOT EXISTS uq_api_token_tasks_event ON api_token_tasks(token_id, event_id) WHERE event_id <> '';
 
 -- token_id 不加外键：令牌删除后审计仍要留存，token_name 冗余保存当时的名称。
 CREATE TABLE IF NOT EXISTS mcp_audit_log (
@@ -1700,3 +1732,177 @@ CREATE TABLE IF NOT EXISTS mcp_audit_log (
     duration_ms BIGINT NOT NULL DEFAULT 0,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- subagent_runs 持久化多智能体子代理运行台账（hermes subagent_lifecycle 的
+-- SQLite store 等价物，落 PostgreSQL）。delegate_task 每次拆分的子代理在
+-- launch 时插入一行 PENDING，随生命周期流转更新 state，终态写入 result 字段。
+-- 服务重启后由 RecoverStuckSubagents 把非终态记录标记为 INTERRUPTED，实现
+-- "重启恢复"语义（子进程已死，未完成即中断）。
+CREATE TABLE IF NOT EXISTS subagent_runs (
+    id                     BIGSERIAL PRIMARY KEY,
+    subagent_id            TEXT NOT NULL UNIQUE,            -- Handle.SubagentID
+    parent_session_id      TEXT NOT NULL DEFAULT '',
+    parent_task_id         BIGINT NOT NULL DEFAULT 0,
+    correlation_id         TEXT NOT NULL DEFAULT '',
+    goal                   TEXT NOT NULL,
+    context                TEXT NOT NULL DEFAULT '',
+    role                   TEXT NOT NULL DEFAULT 'leaf',
+    model                  TEXT NOT NULL DEFAULT '',
+    provider               TEXT NOT NULL DEFAULT '',
+    allowed_toolsets       TEXT NOT NULL DEFAULT '[]',      -- JSON array
+    metadata               TEXT NOT NULL DEFAULT '{}',      -- JSON object
+    state                  TEXT NOT NULL DEFAULT 'PENDING'
+                             CHECK (state IN ('PENDING','STARTING','RUNNING',
+                                              'SUCCEEDED','FAILED','INTERRUPTED',
+                                              'CANCEL_REQUESTED','CANCELLED')),
+    depth                  INTEGER NOT NULL DEFAULT 1,
+    started_at             TIMESTAMPTZ,
+    completed_at           TIMESTAMPTZ,
+    summary                TEXT NOT NULL DEFAULT '',
+    structured_payload     TEXT NOT NULL DEFAULT '{}',      -- JSON object
+    error_classification   TEXT NOT NULL DEFAULT '',
+    error_message          TEXT NOT NULL DEFAULT '',
+    usage_metadata         TEXT NOT NULL DEFAULT '{}',      -- JSON object
+    tool_execution_summary TEXT NOT NULL DEFAULT '{}',      -- JSON object
+    result_hash            TEXT NOT NULL DEFAULT '',
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_subagent_runs_parent ON subagent_runs(parent_session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_subagent_runs_state  ON subagent_runs(state)
+    WHERE state IN ('PENDING','STARTING','RUNNING','CANCEL_REQUESTED');
+DROP TRIGGER IF EXISTS trg_subagent_runs_upd ON subagent_runs;
+CREATE TRIGGER trg_subagent_runs_upd BEFORE UPDATE ON subagent_runs
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- group_rooms: 群聊房间持久化（hermes hosted_rooms 的 PostgreSQL 投影）。
+-- 一个房间 = 2-6 个 Bot 成员共享一条可见对话，用户消息触发最多 3 轮串行发言。
+CREATE TABLE IF NOT EXISTS group_rooms (
+    id              BIGSERIAL PRIMARY KEY,
+    room_id         TEXT NOT NULL UNIQUE,
+    name            TEXT NOT NULL,
+    gateway_id      TEXT NOT NULL DEFAULT '',
+    authority_epoch INTEGER NOT NULL DEFAULT 1,
+    routing         TEXT NOT NULL DEFAULT 'everyone',   -- everyone | lead
+    lead_member_id  TEXT NOT NULL DEFAULT '',
+    purpose         TEXT NOT NULL DEFAULT '',
+    notes           TEXT NOT NULL DEFAULT '',
+    image           TEXT NOT NULL DEFAULT '',
+    disbanded_at    TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- group_members: 房间成员（frozen roster 2-6）。llm_profile_id 是 ARTEX 扩展：
+-- 成员 turn 用该 LLM 配置跑 Bot 发言（hermes 的 Bot 有自己的 profile/model）。
+CREATE TABLE IF NOT EXISTS group_members (
+    id             BIGSERIAL PRIMARY KEY,
+    room_id        TEXT NOT NULL REFERENCES group_rooms(room_id) ON DELETE CASCADE,
+    member_id      TEXT NOT NULL,
+    profile        TEXT NOT NULL,
+    handle         TEXT NOT NULL,
+    display_name   TEXT NOT NULL DEFAULT '',
+    target         TEXT NOT NULL DEFAULT '{}',
+    llm_profile_id BIGINT,
+    agent_key      TEXT REFERENCES agents(key) ON DELETE SET NULL,
+    position       INTEGER NOT NULL DEFAULT 0,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(room_id, member_id),
+    UNIQUE(room_id, handle)
+);
+CREATE INDEX IF NOT EXISTS idx_group_members_room ON group_members(room_id, position);
+-- 成员绑定现有 agent(用于成员 turn 的 system prompt + agent 级模型):幂等迁移兜底。
+ALTER TABLE group_members ADD COLUMN IF NOT EXISTS agent_key TEXT REFERENCES agents(key) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_group_members_agent ON group_members(agent_key) WHERE agent_key IS NOT NULL;
+
+-- group_events: 房间 typed 事件日志（message.user / message.member /
+-- turn.settled|failed|cancelled|deferred / room.activity|stop_requested|
+-- continued|routed|assignment）。seq 在房间内单调递增，policy 重放依赖它。
+CREATE TABLE IF NOT EXISTS group_events (
+    id                   BIGSERIAL PRIMARY KEY,
+    room_id              TEXT NOT NULL REFERENCES group_rooms(room_id) ON DELETE CASCADE,
+    seq                  INTEGER NOT NULL,
+    event_id             TEXT NOT NULL UNIQUE,
+    kind                 TEXT NOT NULL,
+    actor                TEXT NOT NULL DEFAULT '{}',
+    payload              TEXT NOT NULL DEFAULT '{}',
+    authority_gateway_id TEXT NOT NULL DEFAULT '',
+    authority_epoch      INTEGER NOT NULL DEFAULT 1,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(room_id, seq)
+);
+CREATE INDEX IF NOT EXISTS idx_group_events_room_seq ON group_events(room_id, seq);
+
+-- memories: 跨任务记忆（平台沉淀的可复用结论）。与 task_intelligence 的分工见
+-- db/memories.go 顶部注释：intelligence 是随任务的原始情报，memory 是提炼后
+-- 长期存活、会注入下一轮系统提示词的结论。
+-- scope 三层：global（平台级偏好/经验）| company（企业级特性）| task（任务级打法）。
+-- fingerprint 唯一 = 同作用域同类型同正文的记忆幂等（写两次不会堆积重复条）。
+-- hit_count / last_used_at 是「记忆强化」信号：被反复召回的记忆打分排前面。
+CREATE TABLE IF NOT EXISTS memories (
+    id           BIGSERIAL PRIMARY KEY,
+    scope        TEXT NOT NULL CHECK (scope IN ('global','company','task')),
+    company_id   BIGINT REFERENCES companies(id) ON DELETE CASCADE,
+    task_id      BIGINT REFERENCES tasks(id) ON DELETE CASCADE,
+    kind         TEXT NOT NULL CHECK (kind IN ('fact','preference','lesson','note')),
+    title        TEXT NOT NULL DEFAULT '',
+    content      TEXT NOT NULL,
+    salience     REAL NOT NULL DEFAULT 0.5 CHECK (salience BETWEEN 0 AND 1),
+    hit_count    INTEGER NOT NULL DEFAULT 0,
+    status       TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','archived')),
+    source       TEXT NOT NULL DEFAULT 'user',
+    fingerprint  TEXT NOT NULL UNIQUE,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_used_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- 时间感知（mem0 temporal reasoning）：valid_from/valid_until 界定这条结论何时有效。
+    -- NULL = 无限（不设开始 = 即刻有效；不设结束 = 长期有效）。检索默认只召回当前有效，
+    -- 过期的结论不打扰 agent——除非显式要「看全部历史」。
+    valid_from   TIMESTAMPTZ,
+    valid_until  TIMESTAMPTZ,
+    -- 全文检索向量（多信号融合的第一路信号）：手动维护（Put/Update 时算），
+    -- 不用 GENERATED 列，避开 to_tsvector 的 immutability 边界争议。
+    search_vec   tsvector,
+    CHECK (scope <> 'company' OR company_id IS NOT NULL),
+    CHECK (scope <> 'task'    OR task_id IS NOT NULL),
+    CHECK (valid_until IS NULL OR valid_from IS NULL OR valid_until > valid_from)
+);
+CREATE INDEX IF NOT EXISTS idx_memories_scope_status ON memories(scope, status);
+CREATE INDEX IF NOT EXISTS idx_memories_company    ON memories(company_id) WHERE company_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_memories_task       ON memories(task_id)    WHERE task_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_memories_kind       ON memories(kind);
+CREATE INDEX IF NOT EXISTS idx_memories_search_vec ON memories USING GIN (search_vec);
+CREATE INDEX IF NOT EXISTS idx_memories_valid      ON memories(valid_until) WHERE valid_until IS NOT NULL;
+
+-- 实体链接（mem0 entity linking + cognee 图记忆）：
+-- 从记忆正文离线提取的技术实体（IP/域名/路径/文件/端口/CVE/版本等），
+-- 跨记忆用同一实体关联，检索时可按「这条记忆讲的是哪个目标」聚合。
+CREATE TABLE IF NOT EXISTS memory_entities (
+    id         BIGSERIAL PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    kind       TEXT NOT NULL CHECK (kind IN ('ip','domain','path','file','port','cve','version','word','note')),
+    first_seen TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ref_count  INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS memory_entity_links (
+    entity_id BIGINT NOT NULL REFERENCES memory_entities(id) ON DELETE CASCADE,
+    memory_id BIGINT NOT NULL REFERENCES memories(id)       ON DELETE CASCADE,
+    PRIMARY KEY (entity_id, memory_id)
+);
+CREATE INDEX IF NOT EXISTS idx_memory_entity_links_mem ON memory_entity_links(memory_id);
+
+-- obsidian_notes：本地 Obsidian 知识库的导入追踪（增量同步）。
+-- 每篇笔记一行，vault+rel_path 唯一；note_hash 变了才重新导入。
+-- memory_id 指向导入成的记忆；记忆被删时置 NULL（下次重新导入）。
+CREATE TABLE IF NOT EXISTS obsidian_notes (
+    id          BIGSERIAL PRIMARY KEY,
+    vault       TEXT NOT NULL,
+    rel_path    TEXT NOT NULL,
+    note_hash   TEXT NOT NULL,
+    memory_id   BIGINT REFERENCES memories(id) ON DELETE SET NULL,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (vault, rel_path)
+);
+CREATE INDEX IF NOT EXISTS idx_obsidian_notes_vault ON obsidian_notes(vault);

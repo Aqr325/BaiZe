@@ -8,15 +8,16 @@ import (
 	"math"
 	"net/http"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept"
-	"github.com/Autumn-27/artex/sidequestion"
+	"github.com/Autumn-27/baize/agent"
+	"github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/intercept"
+	"github.com/Autumn-27/baize/sidequestion"
 	"github.com/Autumn-27/norma/llm"
 )
 
@@ -225,7 +226,7 @@ func (s *Server) pgDeleteConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.cancelConversation(c.ID)
-	s.cancelSideWhere(func(p sidequestion.Parent) bool { return p.ConversationID == c.ID })
+	s.side.cancelWhere(func(p sidequestion.Parent) bool { return p.ConversationID == c.ID })
 	if err := pg.DeleteConversation(c.ID); err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -284,7 +285,7 @@ func (s *Server) pgDeleteConversationsBatch(w http.ResponseWriter, r *http.Reque
 	}
 	for _, id := range ids {
 		s.cancelConversation(id)
-		s.cancelSideWhere(func(p sidequestion.Parent) bool { return p.ConversationID == id })
+		s.side.cancelWhere(func(p sidequestion.Parent) bool { return p.ConversationID == id })
 	}
 	deleted, err := pg.DeleteConversations(ids)
 	if err != nil {
@@ -542,7 +543,13 @@ func (s *Server) runConversation(c *db.Conversation, msg, busyKey string, userMe
 	if len(userMessage) == 1 {
 		ctx = intercept.WithReviewContext(ctx, "", intercept.ReviewBackground{Source: intercept.BackgroundUserMessage, Text: userMessage[0]})
 	}
-	go s.runConversationTurn(ctx, cancel, c, msg, busyKey)
+	// 纯用户文本（不含附件清单等包装）交给自动记忆抽取；机器触发/复测没有这一段，
+	// 相应地不会被当作用户对话沉淀。
+	originText := ""
+	if len(userMessage) == 1 {
+		originText = userMessage[0]
+	}
+	go s.runConversationTurn(ctx, cancel, c, msg, busyKey, originText)
 }
 
 // runConversationSync runs ONE agent turn on a conversation and BLOCKS until the
@@ -551,7 +558,7 @@ func (s *Server) runConversation(c *db.Conversation, msg, busyKey string, userMe
 // for completion before starting the next queued fire for the same agent.
 func (s *Server) runConversationSync(c *db.Conversation, msg, busyKey string) {
 	ctx, cancel := s.conversationRunContext(c.ID, busyKey)
-	s.runConversationTurn(ctx, cancel, c, msg, busyKey)
+	s.runConversationTurn(ctx, cancel, c, msg, busyKey, "")
 }
 
 // Register cancellation before returning 202, so an immediate stop/delete cannot
@@ -566,7 +573,12 @@ func (s *Server) conversationRunContext(id int64, busyKey string) (context.Conte
 	return ctx, cancel
 }
 
-func (s *Server) runConversationTurn(ctx context.Context, cancel context.CancelCauseFunc, c *db.Conversation, msg, busyKey string) {
+func (s *Server) runConversationTurn(ctx context.Context, cancel context.CancelCauseFunc, c *db.Conversation, msg, busyKey, originText string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[chat] turn panic recovered: %v\n%s", r, debug.Stack())
+		}
+	}()
 	defer func() {
 		cancel(agent.AbortChatTurnFinished)
 		s.chatMu.Lock()
@@ -661,16 +673,106 @@ func (s *Server) runConversationTurn(ctx context.Context, cancel context.CancelC
 	}
 	// On a manual stop ctx is cancelled; Chat already emits a clean "已手动停止"
 	// step, so skip the raw-error entry — only surface genuine failures.
-	if _, err := ca.Chat(ctx, c.AgentKey, sessionID, msg, maxTurns, maxDuration, webSearch, emit); err != nil {
-		finishReason = err.Error()
+	assistantText, chatErr := ca.Chat(ctx, c.AgentKey, sessionID, msg, maxTurns, maxDuration, webSearch, emit)
+	if chatErr != nil {
+		finishReason = chatErr.Error()
 		if ctx.Err() == nil {
 			_, _ = pg.AppendConvActivity(c.ID, db.Activity{Worker: c.AgentKey, Kind: "text", IsError: true,
-				Summary: "（出错：" + err.Error() + "）", Detail: err.Error()})
+				Summary: "（出错：" + chatErr.Error() + "）", Detail: chatErr.Error()})
 		}
 	} else {
 		finishStatus, finishReason = "completed", ""
+		// 每轮对话结束后自动沉淀记忆（异步、有界、失败不影响本轮对话）。
+		// ctx 在 defer 里会被 cancel，所以抽取器用独立的 Background ctx。
+		s.maybeAutoMemorize(c, originText, assistantText)
 	}
 	_ = pg.TouchConversation(c.ID)
+}
+
+// maybeAutoMemorize 在一轮用户对话完成后，异步从对话内容抽取可复用结论并写入记忆库。
+// 只在开关打开、确有用户消息且对话正常结束时动作；provider 解析沿用 conversation
+// 绑定的 profile → 全局激活 profile 的优先级，与自动标题一致。
+func (s *Server) maybeAutoMemorize(c *db.Conversation, userText, assistantText string) {
+	if !s.m.pg.GetBool(settingAutoMemory, true) {
+		return
+	}
+	if strings.TrimSpace(userText) == "" || strings.TrimSpace(assistantText) == "" {
+		return
+	}
+	ms := s.memoryStore()
+	if ms == nil {
+		return
+	}
+	agentKey := c.AgentKey
+	pinnedProfile := c.LLMProfileID
+	convID := c.ID
+	go func() {
+		// 兜底 recover：后台 goroutine 里的 panic 会直接终止整个进程。
+		// 记忆沉淀失败不应影响服务存活（项目在 agent/assembly.go 已有同类防护）。
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[auto-memory] conv %d panic recovered: %v", convID, r)
+			}
+		}()
+		// 挂到服务生命周期 ctx 而非 Background：服务关停时能立即中断 LLM 调用与
+		// 数据库写入，而不是让 45s 窗口内的请求继续计费/落库。
+		parent := s.ctx
+		if parent == nil {
+			parent = context.Background() // 测试里直接构造 Server 的场景
+		}
+		ctx, cancel := context.WithTimeout(parent, 45*time.Second)
+		defer cancel()
+		profileID := s.effectiveProfileForAgent(agentKey, pinnedProfile)
+		var prov llm.Provider
+		providerOK := false
+		if profileID != nil {
+			prov, _, providerOK = s.providerForProfile(*profileID)
+		}
+		if !providerOK {
+			if active, activeErr := s.m.pg.ActiveProfile(); activeErr == nil && active != nil {
+				profileID = &active.ID
+				prov, _, providerOK = s.providerForProfile(active.ID)
+			} else if activeErr != nil {
+				log.Printf("[auto-memory] conv %d active profile lookup failed: %v", convID, activeErr)
+			}
+		}
+		if profileID == nil || !providerOK || prov == nil {
+			log.Printf("[auto-memory] conv %d: no effective profile, skip", convID)
+			return
+		}
+		cands, err := agent.ExtractMemories(ctx, prov, userText, assistantText)
+		if err != nil {
+			log.Printf("[auto-memory] conv %d: %v", convID, err)
+			return
+		}
+		stored := 0
+		for _, cand := range cands {
+			// 第二道确定性防线：即使抽取器的过滤被绕过/版本回退，含凭据或
+			// 指令注入模式的候选也绝不写入 global 记忆（global 会注入所有任务）。
+			if reason := agent.UnsafeMemoryReason(cand.Title, cand.Content); reason != "" {
+				preview := cand.Content
+				if utf8.RuneCountInString(preview) > 80 {
+					preview = string([]rune(preview)[:80]) + "…"
+				}
+				log.Printf("[auto-memory] conv %d: candidate rejected (%s): %s", convID, reason, preview)
+				continue
+			}
+			_, _, e := ms.Put(ctx, db.MemoryInput{
+				Scope: db.MemoryScopeGlobal, Kind: cand.Kind, Title: cand.Title,
+				Content: cand.Content, Salience: cand.Salience, Source: "chat:auto",
+			})
+			if e != nil {
+				log.Printf("[auto-memory] conv %d put failed: %v", convID, e)
+				continue
+			}
+			stored++
+		}
+		if stored > 0 {
+			if _, e := ms.Prune(ctx, db.MemoryScopeGlobal, 0, 0); e != nil {
+				log.Printf("[auto-memory] conv %d prune failed: %v", convID, e)
+			}
+		}
+	}()
 }
 
 // triggerBehavior is an agent's cached P3 trigger post-processing策略 (see the

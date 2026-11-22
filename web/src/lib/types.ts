@@ -1,4 +1,4 @@
-// ARTEX domain model — types used across the UI.
+// BaiZe domain model — types used across the UI.
 // Derived from the functional spec (section 7: 关键数据形状).
 
 export type TaskStatus = "created" | "queued" | "running" | "paused" | "done" | "failed" | "timeout";
@@ -18,6 +18,46 @@ export function parseWorkerCountInput(value: string): number | null {
   if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) return null;
   if (parsed < 0 || parsed > MAX_TASK_WORKER_COUNT) return null;
   return parsed;
+}
+
+// 全局统一搜索的统一结果单元（/api/search）。
+export interface DataSearchItem {
+  kind: "task" | "finding" | "conversation" | "asset";
+  id: string;
+  title: string;
+  subtitle?: string;
+  url: string;
+  severity?: string;
+  status?: string;
+  created_at?: string;
+}
+
+// 任务对比/复盘（/api/tasks/compare）。
+export interface TaskCompareFinding {
+  id: number;
+  task_id: number;
+  name: string;
+  vulnclass: string;
+  severity: string;
+  status: string;
+  summary?: string;
+}
+
+export interface TaskCompareMeta {
+  id: number;
+  name: string;
+  status: string;
+  description: string;
+  created_at?: string;
+  completed_at?: string;
+}
+
+export interface TaskCompareResult {
+  a: TaskCompareMeta;
+  b: TaskCompareMeta;
+  fixed: TaskCompareFinding[];
+  new: TaskCompareFinding[];
+  persistent: TaskCompareFinding[];
 }
 
 export interface Task {
@@ -492,12 +532,28 @@ export interface TaskGoal {
 
 // 约束管理卡片用的操作约束(allow=允许 / deny=禁止)。
 export type ConstraintKind = "allow" | "deny";
+// Fence 规则作用的表面：tool|command|host|path|port|all；""=自由文本。
+export type FenceMatch = "" | "tool" | "command" | "host" | "path" | "port" | "all";
 export interface TaskConstraint {
   id: string;
   kind: ConstraintKind;
   text: string;
+  match?: FenceMatch;
+  pattern?: string;
   origin?: string;
   ts?: string;
+}
+
+// Fence 越界授权记录（任务级硬边界：允许清单外的调用经人工授权后放行）。
+export interface FenceAuthz {
+  id: string;
+  surface: string;
+  tool?: string;
+  granted_by?: string;
+  note?: string;
+  created_at?: string;
+  has_expiry?: boolean;
+  expires_at?: string;
 }
 
 // ---- Findings ----
@@ -1045,10 +1101,74 @@ export interface Settings {
   // worker/主 agent/对话)由 noa 接管上下文压缩,取代内置 compaction;每 run 读一次,对
   // 之后启动的 run 生效。
   noa_compaction?: boolean;
+  /** 长期记忆注入开关（默认开）：关闭后不再把记忆块注入 agent 系统提示。 */
+  memory_enabled?: boolean;
+  /** 每轮对话后自动抽取可复用结论写入记忆库（默认开）。 */
+  memory_auto_extract?: boolean;
   // ---- 漏洞 IM 推送（渠道本身是独立资源，见 /api/notify/*，这里只有三项全局配置）----
   notify_enabled?: boolean; // 推送总开关，默认开；用于维护期一键止血
   notify_public_base_url?: string; // 漏洞详情回链的外部访问地址；空=消息不带回链
   notify_digest_interval_min?: number; // 汇总模式周期（分钟），默认 30
+}
+
+// ---- 长期记忆（/api/memories、/api/obsidian）----
+export interface MemoryItem {
+  id: number;
+  scope: string;
+  company_id?: number | null;
+  task_id?: number | null;
+  kind: string;
+  title: string;
+  content: string;
+  salience: number;
+  hit_count: number;
+  status: string;
+  source: string;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string;
+  valid_from?: string | null;
+  valid_until?: string | null;
+  score?: number;
+}
+
+export interface MemoryStatItem {
+  scope: string;
+  kind: string;
+  count: number;
+}
+
+export interface MemoryEntity {
+  id: number;
+  name: string;
+  kind: string;
+  ref_count: number;
+  first_seen: string;
+  last_seen: string;
+}
+
+export interface MemoryGraph {
+  memory: MemoryItem | null;
+  entities: MemoryEntity[];
+  related: MemoryItem[];
+  related_count: number;
+}
+
+export interface ObsidianSyncResult {
+  scanned: number;
+  imported: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  errors?: string[];
+}
+
+export interface ObsidianStatus {
+  vault: string;
+  vault_set: boolean;
+  notes: number;
+  imported: number;
+  last_sync: string;
 }
 
 export interface ProxyPoolEntry {
@@ -1128,6 +1248,13 @@ export interface NotificationMeta {
     failed: number;
     sent_today: number;
     backlog_age_ms: number;
+  };
+  // 投递引擎自身的运行时健康：DB 统计反映不到的「dispatcher 是否还在轮询」。
+  engine: {
+    state: "ok" | "degraded" | "stale" | "unknown"; // 正常 / 连续失败 / 太久没轮询 / 无实例
+    last_tick_at: string; // 最近一次成功轮询时间
+    consecutive_failures: number;
+    last_error?: string;
   };
 }
 
@@ -1309,9 +1436,24 @@ export interface MCPServer {
   tools?: string[]; // mcp_tools_cache (names only, for the count)
 }
 
-export interface MCPTool {
+// MCP 模板库条目（GET /api/mcp-templates）：预配置的实用 MCP 服务器，
+// 前端把模板值预填进表单，用户可改后走普通保存流程。
+export interface MCPTemplate {
+  key: string;
   name: string;
+  category: string; // 通用 | 自检 | 内部
   description: string;
+  transport: "stdio" | "http" | "sse";
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  insecure?: boolean;
+  reminders?: string[];
+}
+
+export interface MCPTool {
+  name: string;  description: string;
 }
 
 // ---- Skills ----
@@ -1996,4 +2138,109 @@ export interface TaskFileListing {
   size: number;
   truncated: boolean;
   missing: boolean;
+}
+
+// One durable subagent ledger row (db.SubagentRun). Mirrors the multi-agent
+// subagent_lifecycle record so the subagents view can list/inspect children.
+export interface SubagentRun {
+  id: number;
+  subagent_id: string;
+  parent_session_id: string;
+  parent_task_id: number;
+  correlation_id: string;
+  goal: string;
+  context: string;
+  role: string;
+  model: string;
+  provider: string;
+  allowed_toolsets: string[];
+  metadata: Record<string, unknown>;
+  state: string;
+  depth: number;
+  started_at?: string;
+  completed_at?: string;
+  summary: string;
+  structured_payload?: Record<string, unknown>;
+  error_classification: string;
+  error_message: string;
+  usage_metadata?: Record<string, unknown>;
+  tool_execution_summary?: Record<string, unknown>;
+  result_hash: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// CancelSubagentResult mirrors delegation.CancelResult.
+export interface CancelSubagentResult {
+  accepted: boolean;
+  already_terminal: boolean;
+  unknown_handle: boolean;
+  unsupported: boolean;
+  state: string;
+}
+
+// ---- Group chat (hermes Bot Mode rooms) ----
+
+// GroupTarget mirrors the local/peer member target (nil/absent = local).
+export interface GroupTarget {
+  kind: "local" | "peer";
+  profile: string;
+  peer_id?: string;
+  installation_id?: string;
+  capability_digest?: string;
+}
+
+export interface GroupMember {
+  member_id: string;
+  profile: string;
+  handle: string;
+  display_name: string;
+  target?: GroupTarget;
+  llm_profile_id?: number;
+  agent_key?: string;
+  position?: number;
+}
+
+// GroupRoomRow is one persisted room (db.GroupRoom JSON).
+export interface GroupRoomRow {
+  room: {
+    room_id: string;
+    name: string;
+    members: GroupMember[];
+    gateway_id: string;
+    authority_epoch: number;
+    routing: string;
+    lead_member_id?: string;
+    purpose?: string;
+    notes?: string;
+  };
+  image?: string;
+  disbanded_at?: string;
+  created_at: string;
+  updated_at: string;
+  members: GroupMember[];
+  member_count: number;
+}
+
+// GroupEvent is one typed room-log entry.
+export interface GroupEvent {
+  seq: number;
+  event_id: string;
+  kind: string;
+  actor: { kind: string; id: string; profile?: string; display_name?: string };
+  payload: Record<string, unknown>;
+  authority_gateway_id: string;
+  authority_epoch: number;
+}
+
+// GroupRoomDetail is GET /api/groups/{id} payload.
+export interface GroupRoomDetail {
+  room: GroupRoomRow;
+  events: GroupEvent[];
+}
+
+export interface GroupCreateInput {
+  name: string;
+  image?: string;
+  members: { profile: string; handle: string; display_name?: string; llm_profile_id?: number; agent_key?: string }[];
 }

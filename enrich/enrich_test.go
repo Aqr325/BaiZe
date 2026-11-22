@@ -1,38 +1,31 @@
 package enrich
 
 import (
-	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
+
+	"github.com/projectdiscovery/httpx/runner"
 )
 
-// Stop after receiving the probe so this request regression needs no database.
-func TestProbeUserAgent(t *testing.T) {
-	for _, ua := range []string{"", "Captured-UA/1.0"} {
-		t.Run(ua, func(t *testing.T) {
-			t.Setenv("ARTEX_HTTP_USER_AGENT", ua)
-			calls := 0
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls++
-				if got := r.UserAgent(); ua == "" && !strings.HasPrefix(got, "Mozilla/5.0 ") {
-					t.Errorf("random UA missing: %q", got)
-				} else if ua != "" && got != ua {
-					t.Errorf("User-Agent = %q, want %q", got, ua)
-				}
-				http.Redirect(w, r, "/stop", http.StatusFound)
-			}))
-			defer server.Close()
-			client := buildClient(nil)
-			client.CheckRedirect = func(*http.Request, []*http.Request) error {
-				return errors.New("probe captured")
-			}
-			e := &Engine{client: client}
-			e.doHTTP(1, server.URL)
-			if calls != 1 {
-				t.Fatalf("probe calls = %d, want 1", calls)
-			}
-		})
+// TestHTTPProbeNoPanic ensures the httpx-based probe (doHTTP) and the record
+// helpers tolerate a nil AssetStore (no DB in unit tests) instead of panicking.
+// The old self-rolled probe's User-Agent regression test was removed because
+// doHTTP now delegates UA/fingerprinting to httpx (projectdiscovery/useragent),
+// no longer using httpidentity.
+func TestHTTPProbeNoPanic(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<html><head><title>baize</title></head><body>ok</body></html>"))
+	}))
+	defer server.Close()
+
+	e := &Engine{as: nil}
+	// httpx runs against the local server; OnResult → recordHTTP must guard nil as.
+	e.doHTTP(1, server.URL)
+	// direct helper with nil store must not panic either.
+	e.recordHTTP(runner.Result{URL: server.URL})
+	if e.as != nil {
+		t.Fatal("expected nil AssetStore in test engine")
 	}
 }

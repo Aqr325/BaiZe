@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/notify"
+	"github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/notify"
 )
 
 // 本文件是推送功能的 HTTP 接口。全部路由挂在 requireAuth 之后（见 Handler()），
@@ -132,6 +132,12 @@ func (s *Server) notifyMeta(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	// 引擎运行时健康：DB 统计反映不到的「dispatcher 是否还在轮询」。
+	// 单实例部署里 notifier 恒非 nil；防御性兜一个 unknown，避免未来改动踩空。
+	engine := notifyEngineHealth{State: "unknown"}
+	if s.notifier != nil {
+		engine = s.notifier.Health()
+	}
 	writeJSON(w, 200, map[string]any{
 		"kinds":               kinds,
 		"enabled":             pg.GetBool(settingNotifyEnabled, true),
@@ -140,7 +146,8 @@ func (s *Server) notifyMeta(w http.ResponseWriter, r *http.Request) {
 		"defaults": map[string]any{
 			"digest_interval_min": notifyDefaultDigestMinutes,
 		},
-		"stats": stats,
+		"stats":  stats,
+		"engine": engine,
 	})
 }
 
@@ -181,7 +188,7 @@ func (s *Server) notifyCreateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req notifyChannelRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, "请求体不是合法 JSON: "+err.Error())
 		return
 	}
@@ -267,7 +274,7 @@ func (s *Server) notifyUpdateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req notifyChannelRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, "请求体不是合法 JSON: "+err.Error())
 		return
 	}

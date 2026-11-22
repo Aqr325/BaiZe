@@ -23,8 +23,27 @@ type ReproductionStep = {
   body: string;
 };
 
+// These patterns match report text in either language (data matching, not UI
+// text); rendering uses i18n keys below so headings follow the selected language.
+const REPORT_SECTIONS = {
+  reproduction: ["复现步骤", "Reproduction steps"],
+  testProcess: ["测试过程", "Test process"],
+  reproductionProcess: ["复现过程", "Reproduction process"],
+  overview: ["概述", "Overview"],
+  impact: ["影响与危害", "Impact and harm"],
+  affectedScope: ["受影响范围", "Affected scope"],
+  outcome: ["最终结果", "Final result"],
+  rootCause: ["根因分析", "Root cause"],
+  remediation: ["修复建议", "Remediation"],
+} as const;
+
 function extractSection(report: string) {
-  const match = report.match(/^##\s+(?:复现步骤|测试过程|复现过程)\s*$/im);
+  const headings = [
+    ...REPORT_SECTIONS.reproduction,
+    ...REPORT_SECTIONS.testProcess,
+    ...REPORT_SECTIONS.reproductionProcess,
+  ];
+  const match = report.match(new RegExp(`^##\\s+(?:${headings.join("|")})\\s*$`, "im"));
   if (!match || match.index === undefined) return "";
   const start = match.index + match[0].length;
   const tail = report.slice(start);
@@ -238,12 +257,16 @@ export function FindingReproductionPanel({ finding, contextTask }: { finding: Fi
     [finding.evidence, finding.report, finding.summary, ui],
   );
   const [traffic, setTraffic] = React.useState<FindingTrafficBinding[] | undefined>(undefined);
-  const overviewSections = ["概述", "影响与危害", "受影响范围"]
-    .map((heading) => ({ heading, content: reportSection(finding.report ?? "", [heading]) }))
+  const overviewSections = (["overview", "impact", "affectedScope"] as const)
+    .map((key) => ({
+      key,
+      heading: ui(`findingReport.section.${key}`),
+      content: reportSection(finding.report ?? "", [...REPORT_SECTIONS[key]]),
+    }))
     .filter((item) => item.content);
-  const outcome = reportSection(finding.report ?? "", ["最终结果"]);
-  const rootCause = reportSection(finding.report ?? "", ["根因分析"]);
-  const remediation = reportSection(finding.report ?? "", ["修复建议"]);
+  const outcome = reportSection(finding.report ?? "", [...REPORT_SECTIONS.outcome]);
+  const rootCause = reportSection(finding.report ?? "", [...REPORT_SECTIONS.rootCause]);
+  const remediation = reportSection(finding.report ?? "", [...REPORT_SECTIONS.remediation]);
 
   React.useEffect(() => {
     let active = true;
@@ -276,7 +299,7 @@ export function FindingReproductionPanel({ finding, contextTask }: { finding: Fi
       </CardHeader>
       <CardContent className="space-y-3">
         {overviewSections.map((section) => (
-          <div key={section.heading} className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm">
+          <div key={section.key} className="rounded-lg bg-muted/30 px-3 py-2.5 text-sm">
             <Markdown text={`## ${section.heading}\n\n${section.content}`} />
           </div>
         ))}
@@ -302,9 +325,9 @@ export function FindingReproductionPanel({ finding, contextTask }: { finding: Fi
         })}
         {outcome || rootCause || remediation ? (
           <div className="space-y-3 border-t pt-3">
-            {outcome ? <Markdown text={`## 最终结果\n\n${outcome}`} /> : null}
-            {rootCause ? <Markdown text={`## 根因分析\n\n${rootCause}`} /> : null}
-            {remediation ? <Markdown text={`## 修复建议\n\n${remediation}`} /> : null}
+            {outcome ? <Markdown text={`## ${ui("findingReport.section.outcome")}\n\n${outcome}`} /> : null}
+            {rootCause ? <Markdown text={`## ${ui("findingReport.section.rootCause")}\n\n${rootCause}`} /> : null}
+            {remediation ? <Markdown text={`## ${ui("findingReport.section.remediation")}\n\n${remediation}`} /> : null}
           </div>
         ) : null}
       </CardContent>

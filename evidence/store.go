@@ -13,11 +13,12 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/traffic"
+	"github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/traffic"
 )
 
 type Store struct {
@@ -411,9 +412,18 @@ func (s *Store) RunGC(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case now := <-timer.C:
-			if err := s.Collect(ctx, now); err != nil && !errors.Is(err, context.Canceled) {
-				log.Printf("[evidence] cleanup failed: %v", err)
-			}
+			// A panic here would kill the process; recover so the GC loop
+			// survives to its next tick (unattended runs rely on it).
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[evidence] cleanup panic recovered, loop survives: %v\n%s", r, debug.Stack())
+					}
+				}()
+				if err := s.Collect(ctx, now); err != nil && !errors.Is(err, context.Canceled) {
+					log.Printf("[evidence] cleanup failed: %v", err)
+				}
+			}()
 		}
 	}
 }

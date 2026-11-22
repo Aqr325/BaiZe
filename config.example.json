@@ -4,7 +4,7 @@
   "_comment_database": "PostgreSQL 连接。优先级：环境变量 ARTEX_PG_DSN > 本文件 database。两种写法二选一：(A) 填下面的分字段；(B) 只填 database.dsn 一个完整连接串。",
   "database": {
     "host": "127.0.0.1",
-    "port": 5433,
+    "port": 5432,
     "user": "artex",
     "password": "",
     "dbname": "artex",

@@ -157,6 +157,15 @@ func NewSSE(ctx context.Context, server, sseURL string, headers map[string]strin
 		cancel()
 		return nil, err
 	}
+	// 防凭据转发：SSE 端点由 MCP 服务器在 data: 里给出，若不校验，服务器可让
+	// 客户端把带着 Authorization 的 POST 发到它指定的第三方地址。要求解析后的
+	// message endpoint 与 SSE 连接同 scheme + 同 host（不同端口也拒绝，端口不同
+	// 即不同服务），否则拒绝建立会话。
+	if err := sameOriginMessageEndpoint(sseURL, endpoint); err != nil {
+		resp.Body.Close()
+		cancel()
+		return nil, err
+	}
 	c := &Client{
 		server:       server,
 		url:          sseURL,
@@ -206,6 +215,31 @@ func readSSEEndpoint(r *bufio.Reader, base string) (string, error) {
 		}
 		return candidate, nil
 	}
+}
+
+// sameOriginMessageEndpoint 校验 MCP 服务器宣告的 message endpoint 与 SSE 连接
+// 同源（scheme + host + port）。MCP 服务器可用它诱导客户端把带 Authorization 的
+// 请求转发到任意第三方地址，因此跨源的一律拒绝。
+func sameOriginMessageEndpoint(sseBase, endpoint string) error {
+	b, err := url.Parse(sseBase)
+	if err != nil {
+		return fmt.Errorf("mcp sse base URL: %w", err)
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("mcp sse endpoint URL: %w", err)
+	}
+	if !u.IsAbs() {
+		return fmt.Errorf("mcp sse endpoint must be absolute, got %q", endpoint)
+	}
+	if !strings.EqualFold(b.Scheme, u.Scheme) {
+		return fmt.Errorf("mcp sse endpoint scheme %q != sse scheme %q (refusing credential forwarding)", u.Scheme, b.Scheme)
+	}
+	// 只比 host:port，忽略用户信息/路径差异。
+	if !strings.EqualFold(b.Host, u.Host) {
+		return fmt.Errorf("mcp sse endpoint host %q != sse host %q (refusing credential forwarding)", u.Host, b.Host)
+	}
+	return nil
 }
 
 func (c *Client) readLegacySSE(r *bufio.Reader) {

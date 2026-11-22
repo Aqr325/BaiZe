@@ -3,9 +3,11 @@ package server
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -36,6 +38,29 @@ func (s *Server) wsResolve(rel string) (string, bool) {
 	return abs, true
 }
 
+// wsOpenRoot opens the workspace through os.Root. All file I/O below goes
+// through it: os.Root follows symlinks only when they stay inside the root, so
+// an agent-created symlink in the shared work dir can no longer be used to
+// read or write files outside the workspace.
+func (s *Server) wsOpenRoot() (*os.Root, error) {
+	return os.OpenRoot(s.m.dir)
+}
+
+// wsRootRel converts a workspace-absolute path into the slash-separated,
+// root-relative path expected by os.Root. It rejects anything that resolves
+// outside the root.
+func (s *Server) wsRootRel(abs string) (string, error) {
+	rel, err := filepath.Rel(filepath.Clean(s.m.dir), abs)
+	if err != nil {
+		return "", err
+	}
+	rel = filepath.ToSlash(rel)
+	if rel == ".." || strings.HasPrefix(rel, "../") || path.IsAbs(rel) {
+		return "", fmt.Errorf("path outside workspace")
+	}
+	return rel, nil
+}
+
 // wsRel renders an absolute path back as a workspace-relative path (forward slashes).
 func (s *Server) wsRel(abs string) string {
 	base := filepath.Clean(s.m.dir)
@@ -61,7 +86,18 @@ func (s *Server) wsList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "非法路径")
 		return
 	}
-	fi, err := os.Stat(abs)
+	rel, err := s.wsRootRel(abs)
+	if err != nil {
+		writeErr(w, 400, "非法路径")
+		return
+	}
+	root, err := s.wsOpenRoot()
+	if err != nil {
+		writeErr(w, 500, "工作区不可用")
+		return
+	}
+	defer root.Close()
+	fi, err := root.Stat(rel)
 	if err != nil {
 		writeErr(w, 404, "路径不存在")
 		return
@@ -70,7 +106,7 @@ func (s *Server) wsList(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "不是目录")
 		return
 	}
-	ents, err := os.ReadDir(abs)
+	ents, err := fs.ReadDir(root.FS(), rel)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -83,7 +119,7 @@ func (s *Server) wsList(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, wsEntry{
 			Name:  e.Name(),
-			Path:  s.wsRel(filepath.Join(abs, e.Name())),
+			Path:  path.Join(rel, e.Name()),
 			Dir:   e.IsDir(),
 			Size:  info.Size(),
 			MTime: info.ModTime().UnixMilli(),
@@ -107,7 +143,18 @@ func (s *Server) wsRead(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "非法路径")
 		return
 	}
-	fi, err := os.Stat(abs)
+	rel, err := s.wsRootRel(abs)
+	if err != nil {
+		writeErr(w, 400, "非法路径")
+		return
+	}
+	root, err := s.wsOpenRoot()
+	if err != nil {
+		writeErr(w, 500, "工作区不可用")
+		return
+	}
+	defer root.Close()
+	fi, err := root.Stat(rel)
 	if err != nil {
 		writeErr(w, 404, "文件不存在")
 		return
@@ -116,7 +163,7 @@ func (s *Server) wsRead(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "是目录，不能作为文件读取")
 		return
 	}
-	f, err := os.Open(abs)
+	f, err := root.Open(rel)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -140,15 +187,26 @@ func (s *Server) wsWrite(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "非法路径")
 		return
 	}
-	if fi, err := os.Stat(abs); err == nil && fi.IsDir() {
+	rel, err := s.wsRootRel(abs)
+	if err != nil || rel == "." {
+		writeErr(w, 400, "非法路径")
+		return
+	}
+	root, err := s.wsOpenRoot()
+	if err != nil {
+		writeErr(w, 500, "工作区不可用")
+		return
+	}
+	defer root.Close()
+	if fi, err := root.Lstat(rel); err == nil && fi.IsDir() {
 		writeErr(w, 400, "目标是目录")
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+	if err := root.MkdirAll(path.Dir(rel), 0o755); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	if err := os.WriteFile(abs, []byte(req.Content), 0o644); err != nil {
+	if err := root.WriteFile(rel, []byte(req.Content), 0o644); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -169,7 +227,18 @@ func (s *Server) wsMkdir(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "非法路径")
 		return
 	}
-	if err := os.MkdirAll(abs, 0o755); err != nil {
+	rel, err := s.wsRootRel(abs)
+	if err != nil || rel == "." {
+		writeErr(w, 400, "非法路径")
+		return
+	}
+	root, err := s.wsOpenRoot()
+	if err != nil {
+		writeErr(w, 500, "工作区不可用")
+		return
+	}
+	defer root.Close()
+	if err := root.MkdirAll(rel, 0o755); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -188,11 +257,22 @@ func (s *Server) wsDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "不能删除工作区根目录")
 		return
 	}
-	if _, err := os.Stat(abs); err != nil {
+	rel, err := s.wsRootRel(abs)
+	if err != nil {
+		writeErr(w, 400, "非法路径")
+		return
+	}
+	root, err := s.wsOpenRoot()
+	if err != nil {
+		writeErr(w, 500, "工作区不可用")
+		return
+	}
+	defer root.Close()
+	if _, err := root.Lstat(rel); err != nil {
 		writeErr(w, 404, "路径不存在")
 		return
 	}
-	if err := os.RemoveAll(abs); err != nil {
+	if err := root.RemoveAll(rel); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -206,15 +286,32 @@ func (s *Server) wsDownload(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "非法路径")
 		return
 	}
-	fi, err := os.Stat(abs)
+	rel, err := s.wsRootRel(abs)
+	if err != nil {
+		writeErr(w, 400, "非法路径")
+		return
+	}
+	root, err := s.wsOpenRoot()
+	if err != nil {
+		writeErr(w, 500, "工作区不可用")
+		return
+	}
+	defer root.Close()
+	fi, err := root.Stat(rel)
 	if err != nil || fi.IsDir() {
 		writeErr(w, 404, "文件不存在")
 		return
 	}
+	f, err := root.Open(rel)
+	if err != nil {
+		writeErr(w, 404, "文件不存在")
+		return
+	}
+	defer f.Close()
 	name := filepath.Base(abs)
 	// RFC 5987 filename* keeps non-ASCII names intact; plain filename is the fallback.
 	setFileDisposition(w, "attachment", name)
-	http.ServeFile(w, r, abs)
+	http.ServeContent(w, r, name, fi.ModTime(), f)
 }
 
 // GET /api/workspace/preview?path=<rel> — serve an image inline for report
@@ -235,15 +332,30 @@ func (s *Server) wsPreview(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "非法路径")
 		return
 	}
-	fi, err := os.Stat(abs)
+	rel, err := s.wsRootRel(abs)
+	if err != nil {
+		writeErr(w, 400, "非法路径")
+		return
+	}
+	root, err := s.wsOpenRoot()
+	if err != nil {
+		writeErr(w, 500, "工作区不可用")
+		return
+	}
+	defer root.Close()
+	fi, err := root.Stat(rel)
 	// Reports use the workspace-relative canonical path
 	// findings/screenshots/finding-<node>-step-<n>.png, while the files live
 	// under the per-conversation session directory. Resolve that exact suffix
 	// in the newest matching session so the links stay portable across reports.
+	// The fallback is re-confined through the same os.Root before being served.
 	if (err != nil || fi.IsDir()) && !filepath.IsAbs(rawPath) {
 		if fallback, found := s.findSessionPreview(rawPath); found {
-			abs = fallback
-			fi, err = os.Stat(abs)
+			if fallbackRel, relErr := s.wsRootRel(fallback); relErr == nil {
+				if fbi, statErr := root.Stat(fallbackRel); statErr == nil && !fbi.IsDir() {
+					abs, rel, fi, err = fallback, fallbackRel, fbi, nil
+				}
+			}
 		}
 	}
 	if err != nil || fi.IsDir() {
@@ -255,10 +367,16 @@ func (s *Server) wsPreview(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 415, "仅支持图片预览")
 		return
 	}
+	f, err := root.Open(rel)
+	if err != nil {
+		writeErr(w, 404, "文件不存在")
+		return
+	}
+	defer f.Close()
 	if s.m.pg.GetBool(settingScreenshotTimestamp, false) {
 		rawRel := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(rawPath), "/"))
-		rel := filepath.ToSlash(s.wsRel(abs))
-		if strings.HasPrefix(rawRel, "findings/screenshots/") || strings.HasPrefix(rel, "findings/screenshots/") || strings.Contains(rel, "/findings/screenshots/") {
+		displayRel := filepath.ToSlash(s.wsRel(abs))
+		if strings.HasPrefix(rawRel, "findings/screenshots/") || strings.HasPrefix(displayRel, "findings/screenshots/") || strings.Contains(displayRel, "/findings/screenshots/") {
 			// The frontend renders this as a small top-right overlay. Use the
 			// file mtime so the label reflects capture/save time, not view time.
 			// Containers may run with UTC even when the host is configured for
@@ -267,7 +385,7 @@ func (s *Server) wsPreview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Disposition", "inline; filename=\""+sanitizeFilename(filepath.Base(abs))+"\"")
-	http.ServeFile(w, r, abs)
+	http.ServeContent(w, r, filepath.Base(abs), fi.ModTime(), f)
 }
 
 func reportScreenshotTimestamp(t time.Time) string {
@@ -368,7 +486,18 @@ func (s *Server) wsUpload(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "非法路径")
 		return
 	}
-	if fi, err := os.Stat(dirAbs); err != nil || !fi.IsDir() {
+	dirRel, err := s.wsRootRel(dirAbs)
+	if err != nil {
+		writeErr(w, 400, "非法路径")
+		return
+	}
+	root, err := s.wsOpenRoot()
+	if err != nil {
+		writeErr(w, 500, "工作区不可用")
+		return
+	}
+	defer root.Close()
+	if fi, err := root.Stat(dirRel); err != nil || !fi.IsDir() {
 		writeErr(w, 400, "目标目录不存在")
 		return
 	}
@@ -388,11 +517,11 @@ func (s *Server) wsUpload(w http.ResponseWriter, r *http.Request) {
 		if name == "" || name == "." || name == ".." {
 			continue
 		}
-		destAbs, okd := s.wsResolve(filepath.Join(s.wsRel(dirAbs), name))
-		if !okd {
-			continue
-		}
-		if err := saveUpload(hdr, destAbs); err != nil {
+		// name is a single base component, so joining it onto the already
+		// validated directory cannot traverse out of the root; Root provides
+		// the final symlink guard on write as well.
+		destRel := path.Join(dirRel, name)
+		if err := saveUploadToRoot(root, hdr, destRel); err != nil {
 			writeErr(w, 500, err.Error())
 			return
 		}
@@ -408,6 +537,23 @@ func saveUpload(hdr *multipart.FileHeader, dest string) error {
 	}
 	defer src.Close()
 	out, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, src)
+	return err
+}
+
+// saveUploadToRoot is the workspace-upload variant of saveUpload. Creating the
+// destination through os.Root rejects a symlink that points outside the root.
+func saveUploadToRoot(root *os.Root, hdr *multipart.FileHeader, dest string) error {
+	src, err := hdr.Open()
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	out, err := root.Create(dest)
 	if err != nil {
 		return err
 	}

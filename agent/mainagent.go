@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept"
+	"github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/intercept"
 	"github.com/Autumn-27/norma/agentcore"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/permission"
@@ -34,7 +34,12 @@ type MainAgent struct {
 	nonStreamingFn  func() bool                            // resolver: use non-streaming (Complete) path? (nil = streaming)
 	noaEnabledFn    func() bool                            // resolver: use experimental noa compaction? (nil = off)
 	maxTokensFn     func() int                             // resolver: per-reply output cap (nil/0 = send no cap)
+	memoryTaskID    int64                                  // task whose memories are injected into the system prompt
 }
+
+// SetMemoryTaskID wires the task whose memories get injected into this agent's
+// system prompt. Wired once at construction, per task.
+func (m *MainAgent) SetMemoryTaskID(taskID int64) { m.memoryTaskID = taskID }
 
 // SetNoaEnabled wires a resolver deciding whether runs use the experimental noa
 // context-compression mechanism. nil/unset = off (built-in compaction). Read per
@@ -102,8 +107,8 @@ const mainAgentDefaultTmpl = `你是一个授权渗透测试系统的"主 agent"
 
 不要编造发现；只根据工具返回的真实数据回答。`
 
-func mainAgentSystem(goal, dataDir, workDir string) string {
-	body := renderSystem("mainagent", mainAgentDefaultTmpl, MainVars{Goal: goal, DataDir: dataDir, Now: nowStr()})
+func mainAgentSystem(goal, dataDir, workDir string, taskID int64) string {
+	body := renderSystem("mainagent", mainAgentDefaultTmpl, MainVars{Goal: goal, DataDir: dataDir, Now: nowStr(), TaskID: taskID})
 	return body + artifactSpec(workDir)
 }
 
@@ -116,6 +121,7 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 	tsx.SetFindingRecorder(m.findingRecorder)
 	if as != nil {
 		tsx.SetAssetStore(as, as.Companies())
+		tsx.SetMemoryStore(as.Memories()) // save_memory / recall_memories
 	}
 	tsx.SetTaskID(taskID)
 	tsx.SetCoverageEnabled(as == nil || as.CoverageEnabled(taskID))
@@ -133,7 +139,7 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 	// 本任务的工作目录 <workDir>/tasks/<taskID>，先建好。
 	mainDir := ensureRunDir(m.workDir, taskID, 0)
 	ctx = intercept.WithReviewWorkingDirectory(ctx, mainDir)
-	system, boundary := deferredSystem(mainAgentSystem(goal, m.workDir, mainDir), def)
+	system, boundary := deferredSystem(mainAgentSystem(goal, m.workDir, mainDir, m.memoryTaskID), def)
 	proxyAddr := m.proxyAddr
 	if m.proxyAddrFn != nil {
 		proxyAddr = m.proxyAddrFn()
@@ -190,7 +196,7 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, mainSeg int, as *db.
 	// across turns (each Chat is a fresh session; without this it can't see earlier
 	// messages). First turn: no file yet → Resume loads nothing and proceeds.
 	if m.tx != nil {
-		_ = s.Resume(opts.SessionID)
+		resumeSession(s, opts.SessionID, "mainagent")
 	}
 	// C2: this session is fresh each turn; re-unlock skill-gated MCPs from prior
 	// Skill() calls in the reloaded history so revealed tools stay callable.

@@ -30,10 +30,30 @@ const opsecPromptBlock = `【OPSEC 准则（硬约束，仅次于授权范围和
 // Prompt-variable structs — fields mirror each agent's catalog (docs §5a) so a
 // user template referencing a catalog variable renders; referencing anything else
 // fails template execution and falls back to the built-in default.
-type PlannerVars struct{ Goal, Scope, AssetSummary, DataDir, Now string }
-type WorkerVars struct{ ProxyAddr, WorkerName, DataDir, Now string }
-type MainVars struct{ Goal, AssetSummary, FindingsSummary, DataDir, Now string }
-type GoalsVars struct{ EngagementDescription, DataDir, Now string }
+type PlannerVars struct {
+	Goal, Scope, AssetSummary, DataDir, Now string
+	TaskID                                  int64
+}
+type WorkerVars struct {
+	ProxyAddr, WorkerName, DataDir, Now string
+	TaskID                              int64
+}
+type MainVars struct {
+	Goal, AssetSummary, FindingsSummary, DataDir, Now string
+	TaskID                                            int64
+}
+type GoalsVars struct {
+	EngagementDescription, DataDir, Now string
+	TaskID                              int64
+}
+
+// PromptTaskID 让 renderSystem 知道本次 run 属于哪个任务，据此取该任务可见的
+// 记忆（task 级 + 关联企业级 + global）。0 = 无任务上下文。
+// 各 vars 都实现它，实现只是返回同一个字段。
+func (v PlannerVars) PromptTaskID() int64 { return v.TaskID }
+func (v WorkerVars) PromptTaskID() int64  { return v.TaskID }
+func (v MainVars) PromptTaskID() int64    { return v.TaskID }
+func (v GoalsVars) PromptTaskID() int64   { return v.TaskID }
 
 // nowStr is the server-local wall-clock string exposed as the universal {{.Now}}
 // prompt variable. renderSystem runs on every agent turn/round, so this is fresh
@@ -57,23 +77,24 @@ func renderSystem(agentKey, def string, vars any) string {
 			tmpl = t
 		}
 	}
+	var body string
 	if out, err := renderTmpl(tmpl, vars); err == nil {
-		if OpsecEnabled != nil && OpsecEnabled() {
-			return out + "\n\n" + opsecPromptBlock
-		}
-		return out
+		body = out
+	} else if out, err := renderTmpl(def, vars); err == nil {
+		body = out
+	} else {
+		body = def
 	}
-	// DB template broke (e.g. references an out-of-catalog var) → code default.
-	if out, err := renderTmpl(def, vars); err == nil {
-		if OpsecEnabled != nil && OpsecEnabled() {
-			return out + "\n\n" + opsecPromptBlock
-		}
-		return out
+	// 记忆块与 OPSEC 尾注都是代码拥有的：DB 里可编辑的正文无权删掉它们。
+	// 记忆在前、OPSEC 在后，让安全约束始终落在提示词最末。
+	out := body
+	if mem := memoryTail(promptTaskID(vars)); mem != "" {
+		out += "\n\n" + mem
 	}
 	if OpsecEnabled != nil && OpsecEnabled() {
-		return def + "\n\n" + opsecPromptBlock
+		out += "\n\n" + opsecPromptBlock
 	}
-	return def
+	return out
 }
 
 func renderTmpl(tmpl string, vars any) (string, error) {

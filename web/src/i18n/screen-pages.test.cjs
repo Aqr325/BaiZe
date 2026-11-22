@@ -184,7 +184,7 @@ test("intelligence renders real preview responses, populated records and localiz
   assert.notEqual(output(fixture), english);
 });
 
-test("approval suggestions translate their buttons and keep the original submitted questions", async () => {
+test("approval suggestions translate their buttons and submitted questions", async () => {
   const hooks = load(base + "/src/hooks/use-side-questions.ts");
   const workspace = load(base + "/src/components/side-question-workspace.tsx");
   const buttons = load(base + "/src/components/ui/button.tsx");
@@ -192,12 +192,9 @@ test("approval suggestions translate their buttons and keep the original submitt
   const saved = [hooks.useSideQuestions, workspace.SideQuestionWorkspace, buttons.Button];
   const sent = [],
     handlers = new Map();
-  const questions = [
-    "此脚本的作用是什么？",
-    "脚本会修改哪些文件或数据？",
-    "为什么这次被放行或拦截？",
-    "脚本中有哪些未确定行为？",
-  ];
+  await i18n.changeLanguage("zh-CN");
+  const keys = ["scriptPurpose", "scriptChanges", "decisionReason", "uncertainBehavior"];
+  const questions = keys.map((key) => i18n.t(`chatUI.approval.${key}`));
   hooks.useSideQuestions = () => ({
     enabled: true,
     open: true,
@@ -227,13 +224,14 @@ test("approval suggestions translate their buttons and keep the original submitt
   try {
     await i18n.changeLanguage("en");
     const english = visible(render(ApprovalDetail, { row, busy: false, decide: noop, revision: 0 }));
-    for (const key of ["scriptPurpose", "scriptChanges", "decisionReason", "uncertainBehavior"]) {
+    const englishQuestions = keys.map((key) => i18n.t(`chatUI.approval.${key}`));
+    for (const key of keys) {
       const label = i18n.t(`chatUI.approval.${key}`);
       assert.ok(english.includes(label), label);
       assert.ok(handlers.has(label), label);
       handlers.get(label)();
     }
-    assert.deepEqual(sent, questions);
+    assert.deepEqual(sent, englishQuestions);
     for (const question of questions) assert.ok(!english.includes(question));
     await i18n.changeLanguage("zh-CN");
     const chinese = visible(render(ApprovalDetail, { row, busy: false, decide: noop, revision: 0 }));

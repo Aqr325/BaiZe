@@ -1,12 +1,11 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/baize/db"
 )
 
 // 总览「目标管理」的人工 CRUD 接口。与 agent 侧的 set_goals 工具写同一批 goal 节点,
@@ -47,7 +46,7 @@ func (s *Server) addGoal(w http.ResponseWriter, r *http.Request) {
 		Text      string `json:"text"`
 		VulnClass string `json:"vulnclass"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decode(r, &body); err != nil {
 		writeErr(w, 400, "invalid JSON")
 		return
 	}
@@ -101,7 +100,7 @@ func (s *Server) editGoal(w http.ResponseWriter, r *http.Request) {
 		Text      string `json:"text"`
 		VulnClass string `json:"vulnclass"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decode(r, &body); err != nil {
 		writeErr(w, 400, "invalid JSON")
 		return
 	}

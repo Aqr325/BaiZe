@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,7 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/baize/db"
 )
 
 const maxFindingFollowUpRunes = 4000
@@ -104,7 +103,7 @@ func (s *Server) deepenFinding(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Description string `json:"description"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "请求正文过大")

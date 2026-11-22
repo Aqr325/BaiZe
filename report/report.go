@@ -9,13 +9,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/baize/db"
 )
 
 // Input bundles what the report needs.
 type Input struct {
 	Title       string
 	Goal        string
+	Status      string // 任务状态（HTML 版展示）
+	Summary     string // 执行摘要补充说明（可选，HTML 版展示）
 	GeneratedAt time.Time
 	AssetCounts map[string]int
 	Findings    []*db.Node
@@ -96,4 +98,24 @@ func nz(s, d string) string {
 		return d
 	}
 	return s
+}
+
+// FileName 生成下载文件名：安全化任务名 + 日期 + 扩展名。
+func FileName(title, ext string) string {
+	t := nz(title, "渗透测试报告")
+	var b strings.Builder
+	for _, r := range t {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '-', r == '_', r == '.', r > 127:
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	name := b.String()
+	if len(name) > 80 {
+		name = name[:80]
+	}
+	return fmt.Sprintf("%s-%s.%s", name, time.Now().Format("20060102"), ext)
 }

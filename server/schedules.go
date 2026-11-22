@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/baize/agent"
+	"github.com/Autumn-27/baize/db"
 )
 
 type scheduleRequest struct {
@@ -97,7 +97,7 @@ func (s *Server) getSchedule(w http.ResponseWriter, r *http.Request) {
 
 func decodeSchedule(r *http.Request) (scheduleRequest, error) {
 	var req scheduleRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		return req, fmt.Errorf("bad json: %w", err)
 	}
 	if req.Enabled == nil {

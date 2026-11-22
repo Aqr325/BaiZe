@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -19,8 +21,16 @@ import (
 const (
 	jwtKeyFilename = "jwt.key"
 	authPassKey    = "auth.password_hash"
-	jwtTTL         = 7 * 24 * time.Hour
-	keyChars       = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	// authTokenVersionKey 是管理员 JWT 的撤销版本号。改密成功后递增，
+	// 旧 token 因 claim 里的 "tv" 与当前版本不符而被拒绝。缺省/空视为 "1"。
+	authTokenVersionKey    = "auth.token_version"
+	defaultAuthTokenVersion = "1"
+	jwtTTL                 = 7 * 24 * time.Hour
+	keyChars               = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+	// loginUsername 是唯一的登录用户名。提常量而不是散在 handler 里的字符串
+	// 字面量：它同时被时序侧信道防护用到，散字面量容易改漏一处造成不一致。
+	loginUsername = "ARTEX"
 
 	// 下限与 setup 页的前端校验一致——校验只放在前端等于没放，直接打 API 就能
 	// 绕过。上限是 bcrypt 的硬限制：超过 72 字节 GenerateFromPassword 会返回
@@ -28,6 +38,15 @@ const (
 	minPasswordRunes = 8
 	maxPasswordBytes = 72
 )
+
+// bcryptDummyHash 是一个合法但从不匹配任何用户密码的 bcrypt 密文。
+// 登录的用户名校验失败路径上比对它一次，只为让耗时和"密码比对"路径一致。
+// 值为 bcrypt.DefaultCost 格式，保证 CompareHashAndPassword 走完整计算。
+var bcryptDummyHash = []byte("$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy")
+
+// authLimiterOrDummy 让 handler 在限流器缺失时（例如未走 New 的单元测试直接
+// 构造 Server）优雅降级成不限流，而不是空指针 panic。
+func (s *Server) authLimiterOrDummy() *authLimiter { return s.authLimit }
 
 // errDataSourceUnavailable 是密码相关读操作失败时统一的回复。这些 handler 绝不能
 // 把"读不到"当成"没有设置"：authInit 曾因此在数据库报错时放行，让未认证请求覆盖
@@ -83,28 +102,132 @@ func loadOrCreateJWTKey(keyDir, dataDir string) ([]byte, error) {
 	return buf, nil
 }
 
-// signJWT issues a 7-day HS256 token for user ARTEX.
-func signJWT(key []byte) (string, error) {
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-		Subject:   "ARTEX",
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(jwtTTL)),
-		IssuedAt:  jwt.NewNumericDate(time.Now()),
-	}).SignedString(key)
+// adminClaims is the admin JWT payload. "tv" (token version) makes tokens
+// revocable: changing the admin password bumps the persisted version, so every
+// token minted before the change stops verifying without waiting for jwtTTL.
+type adminClaims struct {
+	TokenVersion string `json:"tv,omitempty"`
+	jwt.RegisteredClaims
 }
 
-// verifyJWT returns true when tokenStr is a valid, non-expired HS256 token.
-func verifyJWT(tokenStr string, key []byte) bool {
-	t, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method")
-		}
+// signJWT issues a 7-day HS256 token for user BaiZe carrying the current token
+// version. version is variadic so existing callers/tests default to version "1";
+// all production callers pass s.currentAuthTokenVersion() explicitly.
+// NOTE: Subject is display-only (前端用它渲染用户名); verifyJWT 只校验签名与版本,
+// 不检查 Subject 内容, 因此改动不影响认证。
+func signJWT(key []byte, version ...string) (string, error) {
+	tv := defaultAuthTokenVersion
+	if len(version) > 0 && version[0] != "" {
+		tv = version[0]
+	}
+	claims := adminClaims{
+		TokenVersion: tv,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   "白泽",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(jwtTTL)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(key)
+}
+
+// verifyJWT returns true only for a valid, non-expired HS256 token whose "tv"
+// claim matches the expected token version. A missing claim is treated as "1"
+// so tokens issued before this mechanism shipped stay valid until the next
+// password change (which bumps the version and rejects them all).
+// version is variadic for the same reason as signJWT; production callers pass
+// the current version explicitly.
+func verifyJWT(tokenStr string, key []byte, version ...string) bool {
+	want := defaultAuthTokenVersion
+	if len(version) > 0 && version[0] != "" {
+		want = version[0]
+	}
+	claims := &adminClaims{}
+	t, err := jwt.ParseWithClaims(tokenStr, claims, func(*jwt.Token) (any, error) {
 		return key, nil
-	})
-	return err == nil && t.Valid
+	}, jwt.WithValidMethods([]string{"HS256"}))
+	if err != nil || !t.Valid {
+		return false
+	}
+	got := claims.TokenVersion
+	if got == "" {
+		got = defaultAuthTokenVersion
+	}
+	return got == want
+}
+
+// currentAuthTokenVersion returns the active version used to sign and verify
+// admin JWTs. The settings row is the source of truth and is read on every
+// call: reset-password.sh bumps the version directly in the database, so an
+// in-memory-only cache would keep issuing/accepting tokens at a stale version
+// until restart. The settings lookup is a single indexed query on a hot path
+// that already touches the DB; the in-memory value is kept as a fallback for
+// DB outages and for Servers built directly in tests.
+func (s *Server) currentAuthTokenVersion() string {
+	if s.m != nil && s.m.pg != nil {
+		if v, _, err := s.m.pg.GetSetting(authTokenVersionKey); err == nil && v != "" {
+			return v
+		}
+	}
+	s.authTokenVerMu.RLock()
+	defer s.authTokenVerMu.RUnlock()
+	if s.authTokenVer == "" {
+		return defaultAuthTokenVersion
+	}
+	return s.authTokenVer
+}
+
+// nextAuthTokenVersion returns the successor of v. Non-numeric custom values
+// restart the counter at "2" rather than bricking the revocation mechanism.
+func nextAuthTokenVersion(v string) string {
+	n, err := strconv.ParseUint(v, 10, 64)
+	if err != nil {
+		n = 1
+	}
+	return strconv.FormatUint(n+1, 10)
+}
+
+// atomicSettingsWriter is the subset of db.DB used to commit a password change.
+type atomicSettingsWriter interface {
+	SetSettingsAtomic(ctx context.Context, values map[string]string) error
+}
+
+// commitPasswordChange persists the new password hash and the bumped token
+// version in ONE transaction, then refreshes the in-memory version cache.
+// Holding authTokenVerMu across the write serializes concurrent changes so two
+// requests cannot compute the same successor. A failed commit leaves both the
+// stored password and the cached version untouched (fail closed).
+func (s *Server) commitPasswordChange(ctx context.Context, store atomicSettingsWriter, newHash string) (string, error) {
+	// Read the current version before taking the mutex (the read may hit the DB).
+	cur := s.currentAuthTokenVersion()
+	s.authTokenVerMu.Lock()
+	defer s.authTokenVerMu.Unlock()
+	next := nextAuthTokenVersion(cur)
+	if err := store.SetSettingsAtomic(ctx, map[string]string{
+		authPassKey:         newHash,
+		authTokenVersionKey: next,
+	}); err != nil {
+		return "", err
+	}
+	s.authTokenVer = next
+	return next, nil
+}
+
+// isSSETokenRoute reports whether ?token= is honoured for this path. Only the
+// EventSource endpoints may use the query parameter (EventSource cannot set an
+// Authorization header); every other route ignores it so a token can't leak
+// into access logs / Referer headers on ordinary API calls.
+func isSSETokenRoute(path string) bool {
+	switch path {
+	case "/api/logs/stream", "/api/update/stream", "/api/exploration/activity/stream":
+		return true
+	}
+	const prefix = "/api/side-questions/"
+	return strings.HasPrefix(path, prefix) && strings.HasSuffix(path, "/events")
 }
 
 // extractToken reads the JWT from Authorization: Bearer header,
-// artex_token cookie, or ?token= query param (for SSE connections).
+// artex_token cookie, or (SSE routes only) ?token= query param.
 func extractToken(r *http.Request) string {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		return strings.TrimPrefix(h, "Bearer ")
@@ -112,7 +235,10 @@ func extractToken(r *http.Request) string {
 	if c, err := r.Cookie("artex_token"); err == nil && c.Value != "" {
 		return c.Value
 	}
-	return r.URL.Query().Get("token")
+	if isSSETokenRoute(r.URL.Path) {
+		return r.URL.Query().Get("token")
+	}
+	return ""
 }
 
 // requireAuth wraps h with JWT validation.
@@ -129,7 +255,7 @@ func (s *Server) requireAuth(h http.Handler) http.Handler {
 			writeProductError(w, 401, "unauthorized", "未授权", nil)
 			return
 		}
-		if !verifyJWT(tok, s.jwtKey) {
+		if !verifyJWT(tok, s.jwtKey, s.currentAuthTokenVersion()) {
 			writeProductError(w, 401, "token_expired", "token 无效或已过期", nil)
 			return
 		}
@@ -156,6 +282,16 @@ func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/auth/init — sets the password for the first time; rejected if already set.
 func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
+	// 初始化接口在密码不存在时是唯一入口，攻击者用它反复试探可以枚举"是否已
+	// 初始化"，也可以在自己抢先初始化后把管理员密码变成自己的。限流挡掉刷探测。
+	ip := authClientIP(r)
+	if lim := s.authLimiterOrDummy(); lim != nil {
+		if ok, retry := lim.attempt(ip); !ok {
+			lim.maybeWarn(ip, "/api/auth/init")
+			denyRateLimited(w, retry)
+			return
+		}
+	}
 	pg := s.pg(w)
 	if pg == nil {
 		return
@@ -191,14 +327,15 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 	// 这期间别的请求完全可能先把密码设好，而读检查本身也可能因故障而失效。
 	inserted, err := pg.InsertSettingIfAbsent(authPassKey, string(hash))
 	if err != nil {
-		writeProductError(w, 500, "save_failed", "保存失败: "+err.Error(), nil)
+		// 不把底层错误回传：pgx 错误含表名 / SQLSTATE / SQL 片段。
+		writeProductError(w, 500, "save_failed", "保存失败", nil)
 		return
 	}
 	if !inserted {
 		writeProductError(w, 403, "password_already_set", "密码已设置", nil)
 		return
 	}
-	tok, err := signJWT(s.jwtKey)
+	tok, err := signJWT(s.jwtKey, s.currentAuthTokenVersion())
 	if err != nil {
 		writeProductError(w, 500, "token_failed", "token 生成失败", nil)
 		return
@@ -214,9 +351,22 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 	if pg == nil {
 		return
 	}
-	if !verifyJWT(extractToken(r), s.jwtKey) {
+	if !verifyJWT(extractToken(r), s.jwtKey, s.currentAuthTokenVersion()) {
 		writeProductError(w, 401, "unauthorized", "未授权", nil)
 		return
+	}
+	// 限流放在 JWT 校验之后：无效令牌本来就被挡在门外，不必消耗窗口预算；
+	// 这里限的是"持有效令牌反复猜旧密码"这一路——令牌可能已被盗用或过期，
+	// 它不保证操作者就是管理员本人。
+	{
+		ip := authClientIP(r)
+		if lim := s.authLimiterOrDummy(); lim != nil {
+			if ok, retry := lim.attempt(ip); !ok {
+				lim.maybeWarn(ip, "/api/auth/change-password")
+				denyRateLimited(w, retry)
+				return
+			}
+		}
 	}
 	var req struct {
 		OldPassword string `json:"old_password"`
@@ -245,6 +395,9 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.OldPassword)); err != nil {
+		if lim := s.authLimiterOrDummy(); lim != nil {
+			lim.recordFailure(authClientIP(r))
+		}
 		writeProductError(w, 401, "current_password_incorrect", "当前密码错误", nil)
 		return
 	}
@@ -253,15 +406,41 @@ func (s *Server) authChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeProductError(w, 500, "password_hash_failed", "密码加密失败", nil)
 		return
 	}
-	if err := pg.SetSetting(authPassKey, string(newHash)); err != nil {
-		writeProductError(w, 500, "save_failed", "保存失败: "+err.Error(), nil)
+	// 密码 hash 与 token_version 必须一起提交：只改 hash 的话，泄露的旧 token
+	// 仍能再用 7 天。SetSettingsAtomic 保证两者要么都落库要么都不落库。
+	newVer, err := s.commitPasswordChange(r.Context(), pg, string(newHash))
+	if err != nil {
+		writeProductError(w, 500, "save_failed", "保存失败", nil)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	// 旧 token 因版本递增已失效。立刻用新版本签发一个新 token 返回给前端，
+	// 让用户改密后保持登录，而不是下一次请求被 401 登出（UX 突变）。
+	// 旧 token 已无法使用——安全目标（止损泄露的 token）不受影响。
+	fresh, err := signJWT(s.jwtKey, newVer)
+	if err != nil {
+		// 签发失败不应让"改密已成功"回退成错误；返回 ok 但不带新 token，
+		// 前端会走正常 401 登出路径。
+		writeJSON(w, 200, map[string]any{"ok": true})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "token": fresh})
 }
 
 // POST /api/auth/login — validates username/password and returns a JWT.
 func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
+	ip := authClientIP(r)
+	if lim := s.authLimiterOrDummy(); lim != nil {
+		if ok, retry := lim.attempt(ip); !ok {
+			lim.maybeWarn(ip, "/api/auth/login")
+			denyRateLimited(w, retry)
+			return
+		}
+	}
+	fail := func() {
+		if lim := s.authLimiterOrDummy(); lim != nil {
+			lim.recordFailure(ip)
+		}
+	}
 	pg := s.pg(w)
 	if pg == nil {
 		return
@@ -274,7 +453,14 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeProductError(w, 400, "invalid_request", "请求格式错误", nil)
 		return
 	}
-	if req.Username != "ARTEX" {
+	if req.Username != loginUsername {
+		// 时序侧信道防护：这条路径原本直接返回，跳过了 bcrypt，于是"用户名错"
+		// 几十毫秒就回、"用户名对但密码错"要跑一遍 bcrypt（~100ms+）。攻击者按
+		// 响应耗时就能把真实用户名枚举出来——而它本来只有一个可选值。这里补跑
+		// 一次对固定 dummy 密文的比对，把两条路径拉平到同一耗时，枚举失效。
+		// dummy 是任意值的合法 bcrypt 密文，比对必然失败，不泄露任何真实信息。
+		_ = bcrypt.CompareHashAndPassword(bcryptDummyHash, []byte(req.Password))
+		fail()
 		writeProductError(w, 401, "invalid_credentials", "用户名或密码错误", nil)
 		return
 	}
@@ -288,10 +474,11 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)); err != nil {
+		fail()
 		writeProductError(w, 401, "invalid_credentials", "用户名或密码错误", nil)
 		return
 	}
-	tok, err := signJWT(s.jwtKey)
+	tok, err := signJWT(s.jwtKey, s.currentAuthTokenVersion())
 	if err != nil {
 		writeProductError(w, 500, "token_failed", "token 生成失败", nil)
 		return

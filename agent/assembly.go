@@ -56,6 +56,10 @@ func AugmentTools(ctx context.Context, agentKey string, base []actool.CoreTool) 
 			out = append(append([]actool.CoreTool{}, base...), extra...)
 		}
 	}
+	// delegate_task: a uniform multi-agent collaboration tool every agent sees.
+	// Wired (BuildDelegateTool) only when a subagent lifecycle is configured;
+	// otherwise the list is untouched and behavior is unchanged.
+	out = AugmentDelegateTool(out)
 	// DB tools table has the final say on the built-in tools: drop the ones this
 	// agent isn't bound to (or that are disabled) and swap in overridden
 	// descriptions/schemas + default injection. MCP/skill/host tools have no row

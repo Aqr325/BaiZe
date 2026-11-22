@@ -1,22 +1,24 @@
 "use client";
 import * as React from "react";
 
-import { PlusIcon, RefreshCwIcon, ServerIcon, Trash2Icon } from "lucide-react";
+import { LayoutTemplateIcon, PlugZapIcon, PlusIcon, RefreshCwIcon, ServerIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useUITranslation } from "@/i18n/use-ui-translation";
 import { api } from "@/lib/api";
-import type { Agent, MCPServer, MCPTool } from "@/lib/types";
+import type { Agent, MCPServer, MCPTemplate, MCPTool } from "@/lib/types";
 
 type Transport = "stdio" | "http" | "sse";
 type FormState = {
@@ -54,6 +56,11 @@ export default function MCPPage() {
   const [toolsLoading, setToolsLoading] = React.useState(false);
   const [refreshing, setRefreshing] = React.useState(false);
 
+  // 模板库与连接测试
+  const [templates, setTemplates] = React.useState<MCPTemplate[]>([]);
+  const [tplOpen, setTplOpen] = React.useState(false);
+  const [testing, setTesting] = React.useState(false);
+
   const load = React.useCallback(() => {
     api
       .agents()
@@ -74,6 +81,10 @@ export default function MCPPage() {
   }, []);
   React.useEffect(() => {
     load();
+    api
+      .mcpTemplates()
+      .then(setTemplates)
+      .catch(() => undefined);
   }, [load]);
 
   function setF(patch: Partial<FormState>) {
@@ -107,20 +118,40 @@ export default function MCPPage() {
     setOpen(true);
   }
 
+  // 从模板预填表单：模板值落进现有 FormState，用户可改后再保存。
+  // env Map → "K=V" 行文本，args 数组 → 空格连接（args 里不会出现带空格的项，
+  // 官方模板均为独立 token；带空格的允许目录请保存后手动补引号场景极少）。
+  function openFromTemplate(t: MCPTemplate) {
+    setTplOpen(false);
+    setEditing(null);
+    setForm({
+      name: t.name,
+      transport: t.transport,
+      command: t.command ?? "",
+      args: (t.args ?? []).join(" "),
+      url: t.url ?? "",
+      env: envToText(t.env),
+      insecure: t.insecure ?? false,
+    });
+    setTools([]);
+    setTab("config");
+    setOpen(true);
+  }
+
   function openEdit(s: MCPServer) {
     setEditing(s);
     setForm({
       name: s.name,
       transport: s.transport,
       command: s.command ?? "",
-      args: (s.args ?? []).join(" "),
+      args: s.args.join(" "),
       url: s.url ?? "",
       env: envToText(s.env),
       insecure: s.insecure ?? false,
     });
     setTab("config");
     setOpen(true);
-    loadTools(s.id);
+    void loadTools(s.id);
   }
 
   async function loadTools(id: number) {
@@ -134,43 +165,50 @@ export default function MCPPage() {
     }
   }
 
-  async function saveForm() {
+  // 表单 → 保存/测试共用的 payload。返回 null 表示校验未过。
+  function buildPayload(): Partial<MCPServer> | null {
     if (!form.name.trim()) {
       toast.error(ui("screen.fbc79033bfa23d"));
-      return;
+      return null;
     }
     if (form.transport === "stdio" && !form.command.trim()) {
       toast.error(ui("screen.6e9a1a549d159a"));
-      return;
+      return null;
     }
     if (form.transport !== "stdio" && !form.url.trim()) {
       toast.error(ui("screen.fb19ca44a607a5"));
-      return;
+      return null;
     }
+    if (form.transport !== "stdio") {
+      return {
+        name: form.name.trim(),
+        transport: form.transport,
+        url: form.url.trim(),
+        command: "",
+        args: [] as string[],
+        env: parseEnv(form.env), // 远程模式下 env 即请求头
+        insecure: form.insecure,
+      };
+    }
+    return {
+      name: form.name.trim(),
+      transport: "stdio" as const,
+      command: form.command.trim(),
+      args: form.args.trim() ? form.args.trim().split(/\s+/) : [],
+      env: parseEnv(form.env),
+      insecure: false,
+    };
+  }
+
+  async function saveForm() {
+    const payload = buildPayload();
+    if (!payload) return;
     setSaving(true);
     try {
-      const base =
-        form.transport !== "stdio"
-          ? {
-              transport: form.transport,
-              url: form.url.trim(),
-              command: "",
-              args: [] as string[],
-              env: parseEnv(form.env), // 远程模式下 env 即请求头
-              insecure: form.insecure,
-            }
-          : {
-              transport: "stdio" as const,
-              command: form.command.trim(),
-              args: form.args.trim() ? form.args.trim().split(/\s+/) : [],
-              env: parseEnv(form.env),
-              insecure: false,
-            };
       await api.saveMcpServer({
         ...(editing ? { id: editing.id } : {}),
-        name: form.name.trim(),
         enabled: editing ? editing.enabled : true,
-        ...base,
+        ...payload,
       });
       toast.success(editing ? ui("screen.1bd91a7d0c53c9") : ui("screen.53b36687882f85"));
       if (!editing) setOpen(false);
@@ -179,6 +217,30 @@ export default function MCPPage() {
       toast.error(ui("screen.6ade7baf8737c0") + (e as Error).message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  // 起临时连接测当前表单配置，不落库。stdio 模板首次跑 npx 要拉包，可能要等一会。
+  async function testConnection() {
+    const payload = buildPayload();
+    if (!payload) return;
+    setTesting(true);
+    try {
+      const r = await api.testMcpServer(payload);
+      if (r.ok) {
+        toast.success(ui("screen.12d9a48a454087", { v0: r.tools?.length ?? 0 }));
+        const names = (r.tools ?? [])
+          .slice(0, 6)
+          .map((t) => t.name)
+          .join(", ");
+        if (names) toast.message(names + ((r.tools?.length ?? 0) > 6 ? " …" : ""));
+      } else {
+        toast.error(ui("screen.9a6b8ca1d52324") + (r.error ?? "unknown"));
+      }
+    } catch (e) {
+      toast.error(ui("screen.9a6b8ca1d52324") + (e as Error).message);
+    } finally {
+      setTesting(false);
     }
   }
 
@@ -347,7 +409,7 @@ export default function MCPPage() {
               <div key={t.name} className="py-2.5">
                 <code className="font-mono text-sm">{t.name}</code>
                 {t.description && (
-                  <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">{t.description}</p>
+                  <p className="mt-0.5 text-muted-foreground text-xs leading-relaxed">{t.description}</p>
                 )}
               </div>
             ))}
@@ -360,7 +422,7 @@ export default function MCPPage() {
   return (
     <div className="flex flex-1 flex-col gap-4 md:gap-6">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">MCP</h1>
+        <h1 className="font-semibold text-xl tracking-tight">MCP</h1>
         <p className="text-muted-foreground text-sm">{ui("screen.87d38b3a8308a7")}</p>
       </div>
 
@@ -368,21 +430,29 @@ export default function MCPPage() {
         <button
           type="button"
           onClick={openAdd}
-          className="text-foreground/70 border-foreground/70 hover:bg-muted/60 hover:shadow-sm flex min-h-[116px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed transition"
+          className="flex min-h-[116px] flex-col items-center justify-center gap-2 rounded-xl border border-foreground/70 border-dashed text-foreground/70 transition hover:bg-muted/60 hover:shadow-sm"
         >
           <PlusIcon className="size-6" />
           <span className="text-sm">{ui("screen.c7121fa89693b0")}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setTplOpen(true)}
+          className="flex min-h-[116px] flex-col items-center justify-center gap-2 rounded-xl border border-primary/50 border-dashed text-foreground/70 transition hover:bg-muted/60 hover:shadow-sm"
+        >
+          <LayoutTemplateIcon className="size-6 text-primary" />
+          <span className="text-sm">{ui("screen.ac28be12c3918b")}</span>
         </button>
 
         {servers.map((s) => (
           <Card
             key={s.id}
             onClick={() => openEdit(s)}
-            className="hover:border-primary/60 cursor-pointer gap-3 transition hover:shadow-sm"
+            className="cursor-pointer gap-3 transition hover:border-primary/60 hover:shadow-sm"
           >
             <CardHeader>
               <div className="flex items-center gap-2">
-                <ServerIcon className="text-muted-foreground size-4 shrink-0" />
+                <ServerIcon className="size-4 shrink-0 text-muted-foreground" />
                 <CardTitle className="truncate text-base">{s.name}</CardTitle>
                 <Badge variant="outline" className="uppercase">
                   {s.transport}
@@ -455,6 +525,9 @@ export default function MCPPage() {
                   <Button onClick={saveForm} disabled={saving}>
                     {ui("screen.a3030bf8f16dc6")}
                   </Button>
+                  <Button variant="outline" disabled={testing} onClick={() => void testConnection()}>
+                    <PlugZapIcon className={testing ? "animate-pulse" : ""} /> {ui("screen.0a98a48eaaac41")}
+                  </Button>
                 </div>
               </TabsContent>
               <TabsContent value="tools" className="min-h-0 flex-1 overflow-y-auto">
@@ -464,15 +537,62 @@ export default function MCPPage() {
           ) : (
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4">
               {renderForm()}
-              <div className="pt-2 pb-6">
+              <div className="flex gap-2 pt-2 pb-6">
                 <Button onClick={saveForm} disabled={saving}>
                   <PlusIcon /> {ui("screen.7a8a11ead50742")}
+                </Button>
+                <Button variant="outline" disabled={testing} onClick={() => void testConnection()}>
+                  <PlugZapIcon className={testing ? "animate-pulse" : ""} /> {ui("screen.0a98a48eaaac41")}
                 </Button>
               </div>
             </div>
           )}
         </SheetContent>
       </Sheet>
+
+      {/* 模板库：预配置的实用 MCP，预填表单后可改再保存 */}
+      <Dialog open={tplOpen} onOpenChange={setTplOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{ui("screen.ac28be12c3918b")}</DialogTitle>
+            <DialogDescription>{ui("screen.03b1ea66b156b7")}</DialogDescription>
+          </DialogHeader>
+          <p className="text-amber-600 text-xs leading-relaxed dark:text-amber-400">⚠ {ui("screen.a24c6bdeaf7255")}</p>
+          <ScrollArea className="max-h-[65vh] pr-3">
+            <div className="flex flex-col gap-3">
+              {templates.length === 0 ? (
+                <p className="py-6 text-center text-muted-foreground text-sm">{ui("screen.4927a53bcc886a")}</p>
+              ) : (
+                templates.map((t) => (
+                  <div key={t.key} className="rounded-lg border p-4">
+                    <div className="flex items-center gap-2">
+                      <ServerIcon className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="font-medium font-mono text-sm">{t.name}</span>
+                      <Badge variant="outline">{t.category}</Badge>
+                      <Badge variant="secondary" className="uppercase">
+                        {t.transport}
+                      </Badge>
+                      <Button size="sm" variant="outline" className="ml-auto" onClick={() => openFromTemplate(t)}>
+                        {ui("screen.7c2173c1bb4ed7")}
+                      </Button>
+                    </div>
+                    <p className="mt-2 text-muted-foreground text-xs leading-relaxed">{t.description}</p>
+                    {t.reminders && t.reminders.length > 0 && (
+                      <ul className="mt-2 flex flex-col gap-1">
+                        {t.reminders.map((r) => (
+                          <li key={r} className="text-amber-600 text-xs leading-relaxed dark:text-amber-400">
+                            ⚠ {r}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

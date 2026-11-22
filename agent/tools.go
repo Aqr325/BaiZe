@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/baize/db"
 	acperm "github.com/Autumn-27/norma/permission"
 	actool "github.com/Autumn-27/norma/tool"
 )
@@ -53,6 +53,7 @@ func compactIntents(ns []*db.Node, parentsOf, yieldsOf map[int64][]int64) []map[
 type ToolSet struct {
 	findingRecorder FindingRecorder
 	as              *db.AssetStore   // asset store (optional; nil = asset tools not available)
+	mem             *db.MemoryStore  // long-term memory store (optional; nil = memory tools report unavailable)
 	cs              *db.CompanyStore // company store (optional)
 	ts              *db.ExplorationStore
 	worker          string
@@ -145,6 +146,7 @@ type WriteCounts struct {
 	Facts        int
 	Assets       int
 	Findings     int
+	Memories     int
 }
 
 // Total is every node persisted this run, regardless of kind — the
@@ -156,6 +158,9 @@ func (w WriteCounts) String() string {
 	summary := fmt.Sprintf("事实%d 资产%d 漏洞%d", w.Facts, w.Assets, w.Findings)
 	if w.Intelligence > 0 {
 		summary += fmt.Sprintf(" 情报%d", w.Intelligence)
+	}
+	if w.Memories > 0 {
+		summary += fmt.Sprintf(" 记忆%d", w.Memories)
 	}
 	return summary
 }
@@ -2088,5 +2093,7 @@ func (t *ToolSet) PlannerTools() []actool.CoreTool {
 		t.addTaskScope(),
 		// list_untested_assets：按需查本任务范围内未测资产(类型+分页)，自行决定补测。
 		t.listUntestedAssets(),
+		// 长期记忆：规划前先看有没有现成的历史结论/死路（省掉整轮重复试错）。
+		t.saveMemory(), t.recallMemories(),
 	}
 }

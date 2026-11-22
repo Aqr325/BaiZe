@@ -8,35 +8,37 @@ package enrich
 
 import (
 	"crypto/tls"
-	"html"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/internal/httpidentity"
+	"github.com/Autumn-27/baize/db"
 
 	"github.com/miekg/dns"
 	"github.com/projectdiscovery/dnsx/libs/dnsx"
+	goflags "github.com/projectdiscovery/goflags"
+	"github.com/projectdiscovery/httpx/runner"
+	katanaengine "github.com/projectdiscovery/katana/pkg/engine/standard"
+	katanaoutput "github.com/projectdiscovery/katana/pkg/output"
+	katanatypes "github.com/projectdiscovery/katana/pkg/types"
 )
 
 type jobKind int
 
 const (
-	jobDNS  jobKind = iota // resolve a domain
-	jobHTTP                // probe a web asset (site)
+	jobDNS    jobKind = iota // resolve a domain
+	jobHTTP                  // probe a web asset (site) — httpx, tech fingerprint
+	jobCrawl                 // crawl a web asset (site) — katana, endpoint discovery
+	jobNuclei                // vuln scan (site) — nuclei CLI, optional external binary
 )
 
 type job struct {
 	kind jobKind
-	id   int64  // asset id (domain for DNS, site for HTTP)
-	arg  string // host (DNS) or url (HTTP)
+	id   int64  // asset id (domain for DNS, site for HTTP/crawl)
+	arg  string // host (DNS) or url (HTTP/crawl)
 }
 
 // Engine owns the resolver, the proxy-routed HTTP client, and the worker pool.
@@ -44,9 +46,11 @@ type Engine struct {
 	as     *db.AssetStore
 	resolv *dnsx.DNSX
 	client *http.Client
+	proxy  func() string // live recording-proxy address, shared with httpx/katana
 
 	jobs   chan job
-	cool   sync.Map // dedup/cooldown: "kind:id" -> time.Time (last run)
+	cool   sync.Map         // dedup/cooldown: "kind:id" -> time.Time (last run)
+	ckpt   *checkpointStore // disk-backed progress journal (断点恢复)
 	once   sync.Once
 	closed chan struct{}
 }
@@ -79,7 +83,9 @@ func New(as *db.AssetStore, proxy func() string, workers int) *Engine {
 		as:     as,
 		resolv: resolv,
 		client: buildClient(proxy),
+		proxy:  proxy,
 		jobs:   make(chan job, queueSize),
+		ckpt:   newCheckpointStore(),
 		closed: make(chan struct{}),
 	}
 	for i := 0; i < workers; i++ {
@@ -122,6 +128,10 @@ func (e *Engine) ResolveDomain(id int64, host string) { e.enqueue(job{jobDNS, id
 // ProbeSite enqueues an HTTP probe for a web-asset (site). rawURL is the site URL.
 func (e *Engine) ProbeSite(id int64, rawURL string) { e.enqueue(job{jobHTTP, id, rawURL}) }
 
+// CrawlSite enqueues a katana crawl for a web-asset (site), discovering endpoints.
+// rawURL is the site URL. Same RoE gating as ProbeSite (the caller enforces scope).
+func (e *Engine) CrawlSite(id int64, rawURL string) { e.enqueue(job{jobCrawl, id, rawURL}) }
+
 func (e *Engine) enqueue(j job) {
 	if e == nil || id0(j.id) || j.arg == "" {
 		return
@@ -135,12 +145,29 @@ func (e *Engine) enqueue(j job) {
 
 func id0(id int64) bool { return id <= 0 }
 
-// Close stops the workers (idempotent).
+// Close stops the workers (idempotent) and flushes the checkpoint journal.
 func (e *Engine) Close() {
 	if e == nil {
 		return
 	}
 	e.once.Do(func() { close(e.closed) })
+	if e.ckpt != nil {
+		e.ckpt.save()
+	}
+}
+
+// ResumeInterrupted re-enqueues jobs that were marked running when the process
+// last exited (a restart mid-work). The upsert targets are idempotent, so replay
+// is safe. Call once after New (before accepting new work) to pick up where the
+// previous run stopped.
+func (e *Engine) ResumeInterrupted() {
+	if e == nil || e.ckpt == nil {
+		return
+	}
+	for _, j := range e.ckpt.interrupted() {
+		log.Printf("[enrich] 断点恢复：重新入队 kind=%d id=%d %s", j.kind, j.id, j.arg)
+		e.enqueue(j)
+	}
 }
 
 func (e *Engine) worker() {
@@ -152,18 +179,33 @@ func (e *Engine) worker() {
 			if e.onCooldown(j) {
 				continue
 			}
+			if e.ckpt != nil {
+				e.ckpt.markRunning(j)
+			}
 			switch j.kind {
 			case jobDNS:
 				e.doDNS(j.id, j.arg)
 			case jobHTTP:
 				e.doHTTP(j.id, j.arg)
+			case jobCrawl:
+				e.doCrawl(j.id, j.arg)
+			case jobNuclei:
+				e.doNuclei(j.id, j.arg)
+			}
+			if e.ckpt != nil {
+				e.ckpt.markDone(j.kind, j.id)
 			}
 		}
 	}
 }
 
 // onCooldown returns true (skip) if this (kind,id) ran within the cooldown window.
+// The checkpoint journal makes this survive a restart: a job that completed within
+// cooldown is not re-run, while an interrupted (running) one is resumed instead.
 func (e *Engine) onCooldown(j job) bool {
+	if e.ckpt != nil && e.ckpt.doneRecently(j.kind, j.id) {
+		return true
+	}
 	key := string(rune(j.kind)) + ":" + itoa(j.id)
 	if v, ok := e.cool.Load(key); ok {
 		if t, ok := v.(time.Time); ok && time.Since(t) < cooldown {
@@ -220,41 +262,120 @@ func (e *Engine) doDNS(id int64, host string) {
 
 // ---- HTTP probe ----
 
-var reTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
-
+// doHTTP probes a web asset with the httpx library (replacing the former
+// hand-rolled single-request probe). It surfaces the technical fingerprint that
+// the old probe lacked: Technologies (wappalyzer), favicon hash, response
+// headers, status, title, and content length. httpx dials through the recording
+// proxy when one is active (Options.Proxy), so the traffic stays in the store.
 func (e *Engine) doHTTP(id int64, rawURL string) {
-	host := hostOf(rawURL)
-	if host == "" {
+	if hostOf(rawURL) == "" {
 		return
 	}
-	req, err := http.NewRequest("GET", rawURL, nil)
+	options := runner.Options{
+		Methods:         "GET",
+		InputTargetHost: goflags.StringSlice{rawURL},
+		Timeout:         10,
+		OnResult: func(r runner.Result) {
+			if r.Err != nil {
+				return
+			}
+			e.recordHTTP(r)
+		},
+	}
+	if p := e.liveProxy(); p != "" {
+		options.Proxy = p
+	}
+	if err := options.ValidateOptions(); err != nil {
+		log.Printf("[enrich] httpx 选项校验失败 %s: %v", rawURL, err)
+		return
+	}
+	hx, err := runner.New(&options)
 	if err != nil {
+		log.Printf("[enrich] httpx 初始化失败 %s: %v", rawURL, err)
 		return
 	}
-	httpidentity.Apply(req)
-	resp, err := e.client.Do(req)
-	if err != nil {
+	defer hx.Close()
+	hx.RunEnumeration()
+}
+
+// recordHTTP writes one httpx Result into the asset store, filling the tech
+// fingerprint fields (Technologies / favicon / headers) the old probe skipped.
+func (e *Engine) recordHTTP(r runner.Result) {
+	if e == nil || e.as == nil {
 		return
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // cap 1 MiB
-	statusCode := resp.StatusCode
-	bodyLen := int64(len(body))
-	title := extractTitle(body)
+	u := r.URL
+	if u == "" {
+		u = r.Input
+	}
+	if u == "" {
+		return
+	}
+	statusCode := r.StatusCode
+	bodyLen := int64(r.ContentLength)
 	_, _ = e.as.UpsertHTTPService(db.UpsertHTTPServiceReq{
-		URL:           rawURL,
+		URL:           u,
+		Technologies:  r.Technologies,
+		FaviconMMH3:   r.FavIconMMH3,
 		StatusCode:    &statusCode,
 		ContentLength: &bodyLen,
-		PageTitle:     title,
+		PageTitle:     r.Title,
+		IP:            hostOf(u),
 	})
 }
 
-func extractTitle(body []byte) string {
-	m := reTitle.FindSubmatch(body)
-	if m == nil {
+// doCrawl runs a katana standard (non-headless) crawl over a web asset to
+// discover endpoints (URLs/methods). Found URLs are upserted as endpoint assets.
+// katana's high-level runner lives in internal/ (not importable), so we use the
+// public pkg/engine/standard crawler. Same proxy path as doHTTP.
+func (e *Engine) doCrawl(id int64, rawURL string) {
+	if hostOf(rawURL) == "" {
+		return
+	}
+	opts := katanatypes.Options{
+		URLs:     goflags.StringSlice{rawURL},
+		MaxDepth: 3,
+		Timeout:  10,
+		OnResult: func(res katanaoutput.Result) {
+			if e.as == nil || res.Request == nil || res.Request.URL == "" {
+				return
+			}
+			method := res.Request.Method
+			if method == "" {
+				method = "GET"
+			}
+			_, _ = e.as.UpsertEndpoint(db.UpsertEndpointReq{
+				URL:    res.Request.URL,
+				Method: method,
+			})
+		},
+	}
+	if p := e.liveProxy(); p != "" {
+		opts.Proxy = p
+	}
+	crawlerOptions, err := katanatypes.NewCrawlerOptions(&opts)
+	if err != nil {
+		log.Printf("[enrich] katana 选项构造失败 %s: %v", rawURL, err)
+		return
+	}
+	crawler, err := katanaengine.New(crawlerOptions)
+	if err != nil {
+		log.Printf("[enrich] katana 初始化失败 %s: %v", rawURL, err)
+		return
+	}
+	defer crawler.Close()
+	if err := crawler.Crawl(rawURL); err != nil {
+		log.Printf("[enrich] katana 爬取失败 %s: %v", rawURL, err)
+	}
+}
+
+// liveProxy resolves the recording-proxy address at call time (so the runtime
+// traffic-capture toggle applies live), returning "" for direct.
+func (e *Engine) liveProxy() string {
+	if e.proxy == nil {
 		return ""
 	}
-	return strings.TrimSpace(html.UnescapeString(string(m[1])))
+	return e.proxy()
 }
 
 func hostOf(rawURL string) string {

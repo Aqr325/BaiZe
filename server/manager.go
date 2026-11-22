@@ -16,12 +16,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	pgdb "github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/enrich"
-	"github.com/Autumn-27/artex/guard"
-	"github.com/Autumn-27/artex/intercept"
-	"github.com/Autumn-27/artex/traffic"
+	"github.com/Autumn-27/baize/agent"
+	pgdb "github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/enrich"
+	"github.com/Autumn-27/baize/guard"
+	"github.com/Autumn-27/baize/intercept"
+	"github.com/Autumn-27/baize/traffic"
 	actool "github.com/Autumn-27/norma/tool"
 )
 
@@ -316,6 +316,9 @@ const (
 	settingBrowserScreenshot   = "browser_screenshot_enabled"
 	settingScreenshotTimestamp = "browser_screenshot_timestamp_enabled"
 	settingOpsecEnabled        = "opsec_enabled"
+	settingMemoryEnabled       = "memory_enabled"
+	settingAutoMemory          = "memory_auto_extract"
+	settingObsidianVault       = "obsidian_vault"
 	settingAgentTrafficBinding = "agent_traffic_binding"
 	settingWebSearchOn         = "web_search_enabled"
 	settingWebSearchBackend    = "web_search_backend"
@@ -659,10 +662,10 @@ func NewManager(dir, proxyAddr string) (*Manager, error) {
 	} else {
 		m.webSearchBackend = defaultWebSearchBackend
 	}
-	if v, ok, _ := pg.GetSetting(settingBraveKey); ok {
+	if v, ok, err := pg.GetSecret(settingBraveKey); err == nil && ok {
 		m.braveKey = v
 	}
-	if v, ok, _ := pg.GetSetting(settingTavilyKey); ok {
+	if v, ok, err := pg.GetSecret(settingTavilyKey); err == nil && ok {
 		m.tavilyKey = v
 	}
 	if v, ok, _ := pg.GetSetting(settingWebSearchProxy); ok {
@@ -681,6 +684,9 @@ func NewManager(dir, proxyAddr string) (*Manager, error) {
 		}
 	}
 	m.enrich = enrich.New(m.assets, m.ProxyAddr, 4)
+	// 断点恢复：上次进程退出时仍在 running 的长任务（katana/nuclei/httpx）
+	// 重新入队续跑，不重跑已完成工作（enrich_progress.json 持久化）。
+	m.enrich.ResumeInterrupted()
 	// Reconcile the seeded browser MCP with the persisted capture state, so a
 	// restart with capture already on keeps Playwright routed through the proxy.
 	m.syncBrowserMCPProxy()
@@ -811,12 +817,15 @@ func (m *Manager) WebSearchOpts() agent.WebSearchOpts {
 }
 
 func (m *Manager) deepSeekSearchKey() string {
-	key, _, _ := m.pg.GetSetting(settingDeepSeekSearchKey)
+	key, _, err := m.pg.GetSecret(settingDeepSeekSearchKey)
+	if err != nil {
+		return ""
+	}
 	return strings.TrimSpace(key)
 }
 
 func (m *Manager) setDeepSeekSearchKey(key string) error {
-	return m.pg.SetSetting(settingDeepSeekSearchKey, strings.TrimSpace(key))
+	return m.pg.SetSecret(settingDeepSeekSearchKey, strings.TrimSpace(key))
 }
 
 // SetWebSearch persists and applies the web-search settings. braveKey, tavilyKey, and
@@ -839,7 +848,7 @@ func (m *Manager) SetWebSearch(on bool, backend string, braveKey, tavilyKey, pro
 	m.webSearchBackend = backend
 	m.mu.Unlock()
 	if braveKey != nil {
-		if err := m.pg.SetSetting(settingBraveKey, *braveKey); err != nil {
+		if err := m.pg.SetSecret(settingBraveKey, *braveKey); err != nil {
 			return err
 		}
 		m.mu.Lock()
@@ -847,7 +856,7 @@ func (m *Manager) SetWebSearch(on bool, backend string, braveKey, tavilyKey, pro
 		m.mu.Unlock()
 	}
 	if tavilyKey != nil {
-		if err := m.pg.SetSetting(settingTavilyKey, *tavilyKey); err != nil {
+		if err := m.pg.SetSecret(settingTavilyKey, *tavilyKey); err != nil {
 			return err
 		}
 		m.mu.Lock()
@@ -1154,6 +1163,28 @@ func unixNanoOrZero(t *time.Time) int64 {
 }
 
 func taskFromPG(pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Interceptor) *Task {
+	g := guard.NewWithInterceptor(ic)
+	// 宿主强制：任务一旦有 deny 类操作约束，其工具调用一律转人工审批，
+	// 由人对照自然语言约束裁决（不再只靠 system prompt 自觉）。
+	// 每次调用现读约束——约束可在运行时增删，不能缓存。
+	if store != nil {
+		g.SetDenyConstraintCheck(func() bool {
+			rows, err := store.ListConstraints()
+			if err != nil {
+				return false
+			}
+			for _, c := range rows {
+				if c.Kind == "deny" {
+					return true
+				}
+			}
+			return false
+		})
+		// Fence（允许清单+越界授权）：由结构化约束（match+pattern 非空）构建的
+		// 硬边界。live loader——每次工具调用现读约束重建，运行时增删即时生效。
+		// 无结构化 allow 规则时 Fence 不激活，回落上面的 deny 清单升级行为。
+		g.SetFenceLoader(func() *guard.Fence { return buildTaskFence(store) })
+	}
 	return &Task{
 		ID: strconv.FormatInt(pt.ID, 10), ExpID: pt.ExplorationID,
 		Name:       pt.Name,
@@ -1175,7 +1206,7 @@ func taskFromPG(pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Inter
 		CoverageEnabled: pt.CoverageEnabled, ShareGlobalAssets: pt.ShareGlobalAssets, WorkerCount: pt.WorkerCount,
 		FirstRunAt: unixOrZero(pt.FirstRunAt), DeadlineAt: unixOrZero(pt.DeadlineAt),
 		ActiveRunSeconds: pt.ActiveRunSeconds, RunSegmentStartedAt: unixOrZero(pt.RunSegmentStartedAt),
-		Store: store, Guard: guard.NewWithInterceptor(ic), notify: make(chan struct{}, 1),
+		Store: store, Guard: g, notify: make(chan struct{}, 1),
 	}
 }
 

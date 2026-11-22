@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/selfupdate"
+	"github.com/Autumn-27/baize/selfupdate"
 )
 
 // 页面一键更新的 HTTP 面。真正的下载/校验/换装逻辑全在 selfupdate 包里，
@@ -155,7 +155,7 @@ func (h *updateHub) finish(err error) {
 	defer h.mu.Unlock()
 	h.running = false
 	if err != nil {
-		h.cur = updateProgress{Phase: selfupdate.PhaseFailed, Percent: -1, Message: "更新失败", Error: err.Error(), Version: h.cur.Version}
+		h.cur = updateProgress{Phase: selfupdate.PhaseFailed, Percent: -1, Message: "更新失败", Error: sanitizeClientError(err.Error()), Version: h.cur.Version}
 	} else {
 		h.cur = updateProgress{Phase: selfupdate.PhaseStaged, Percent: 100, Message: "新版本已就绪，正在重启…", Version: h.cur.Version}
 	}

@@ -1,6 +1,7 @@
 ---
 name: api-recon
 description: 收集网站API接口时调用该skill。
+short: 前端接口侦察：发现后端 API、前端路由与 UI 功能触发点。
 ---
 
 # API Recon（前端接口侦察）

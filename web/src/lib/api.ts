@@ -20,6 +20,8 @@ import type {
   BatchCategoryItem,
   BatchControlItem,
   ChatAttachment,
+  DataSearchItem,
+  TaskCompareResult,
   CommandRecord,
   Company,
   CompanyScopeMutation,
@@ -90,6 +92,11 @@ import type {
   SSProject,
   SSTask,
   Stats,
+  SubagentRun,
+  CancelSubagentResult,
+  GroupRoomRow,
+  GroupRoomDetail,
+  GroupCreateInput,
   SystemMetrics,
   Task,
   TaskArchive,
@@ -98,6 +105,8 @@ import type {
   TaskAssetScopeMutation,
   TaskCategory,
   TaskConstraint,
+  FenceAuthz,
+  FenceMatch,
   TaskFileListing,
   TaskGoal,
   TaskIntelligence,
@@ -120,6 +129,7 @@ import type {
   UsageStats,
   WorkspaceFile,
   WorkspaceListing,
+  MCPTemplate,
 } from "@/lib/types";
 
 /**
@@ -211,6 +221,47 @@ export interface McpServerAuditEntry {
   created_at: string;
 }
 
+// 401 is not always an expired session: the backend also uses it for business
+// validation failures (e.g. a wrong current password on change-password), and the
+// login/init/status probes legitimately return 401. Only clear credentials and
+// redirect when a Bearer-authenticated request fails with a session code.
+const SESSION_INVALID_CODES = new Set(["unauthorized", "token_expired", "invalid_token"]);
+const AUTH_ENDPOINTS = ["/auth/login", "/auth/init", "/auth/change-password", "/auth/status"];
+const REQUEST_TIMEOUT_MS = 15_000;
+
+function isSessionInvalidCode(code: string | undefined): boolean {
+  return !!code && SESSION_INVALID_CODES.has(code);
+}
+
+function isAuthEndpoint(path: string): boolean {
+  return AUTH_ENDPOINTS.some((endpoint) => path.startsWith(endpoint));
+}
+
+// Combine a caller-provided signal with a default timeout without AbortSignal.any,
+// which is unavailable on some Node versions. Listeners/timers are always removed
+// so cancelled requests never leave stray side effects or keep the loop alive.
+function withRequestSignal(external?: AbortSignal | null): { signal: AbortSignal | undefined; cleanup: () => void } {
+  // Isolated test VMs may not expose AbortController; fall back to the caller's
+  // signal there so the transport keeps its previous behavior.
+  if (typeof AbortController === "undefined") {
+    return { signal: external ?? undefined, cleanup: () => {} };
+  }
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(external?.reason);
+  if (external) {
+    if (external.aborted) controller.abort(external.reason);
+    else external.addEventListener("abort", onAbort, { once: true });
+  }
+  const timer = setTimeout(() => controller.abort(new Error("request timeout")), REQUEST_TIMEOUT_MS);
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timer);
+      external?.removeEventListener("abort", onAbort);
+    },
+  };
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -225,14 +276,21 @@ export class ApiError extends Error {
 export async function http<T>(path: string, init?: RequestInit): Promise<T> {
   if (MOCK) return mockHandle<T>(init?.method ?? "GET", path, init?.body ?? null);
   const token = getToken();
-  const r = await apiFetch(`/api${path}`, {
-    ...init,
-    headers: {
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers as Record<string, string> | undefined),
-    },
-  });
+  const { signal, cleanup } = withRequestSignal(init?.signal);
+  let r: Response;
+  try {
+    r = await apiFetch(`/api${path}`, {
+      ...init,
+      signal,
+      headers: {
+        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers as Record<string, string> | undefined),
+      },
+    });
+  } finally {
+    cleanup();
+  }
   if (!r.ok) {
     const fallback = r.status === 401 ? "未授权" : `${init?.method ?? "GET"} ${path}: ${r.status}`;
     let message = fallback;
@@ -250,7 +308,14 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // Keep the status-based fallback for empty or non-JSON error responses.
     }
-    if (r.status === 401 && typeof window !== "undefined") {
+    if (
+      r.status === 401 &&
+      !signal?.aborted &&
+      !!token &&
+      isSessionInvalidCode(code) &&
+      !isAuthEndpoint(path) &&
+      typeof window !== "undefined"
+    ) {
       localStorage.removeItem("artex_token");
       document.cookie = "artex_token=; path=/; max-age=0";
       window.location.href = "/login";
@@ -276,10 +341,14 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
 // to the Go backend on :8787, whose CORS is open.
 //
 // Override either default with NEXT_PUBLIC_SSE_BASE (set it to "" to force same-origin).
-// Token is appended as ?token= because SSE can't carry cookies cross-origin.
+// SECURITY: EventSource cannot set an Authorization header, so the token is
+// appended as ?token= and may leak into proxy/access logs, browser history and
+// Referer headers. This is a deliberate short-term compatibility compromise for
+// cross-origin streams; long term prefer a short-lived stream token or same-origin
+// cookies. Never log the full SSE URL or echo it into error messages.
 // mockReport returns a canned Markdown report for the demo.
 function mockReport(_task?: string): string {
-  return `# ARTEX 渗透测试报告 — Acme Corp
+  return `# 白泽 渗透测试报告 — Acme Corp
 
 ## 概览
 - 范围：acme.com（含 www / admin / api / shop / vpn 子域）
@@ -332,15 +401,17 @@ export function openSSE(path: string): EventSource {
   return source;
 }
 
-const get = <T>(p: string) => http<T>(p);
-const post = <T>(p: string, body?: unknown) =>
-  http<T>(p, { method: "POST", body: body ? JSON.stringify(body) : undefined });
-const put = <T>(p: string, body?: unknown) =>
-  http<T>(p, { method: "PUT", body: body ? JSON.stringify(body) : undefined });
-const patch = <T>(p: string, body?: unknown) =>
-  http<T>(p, { method: "PATCH", body: body ? JSON.stringify(body) : undefined });
-const del = <T>(p: string, body?: unknown) =>
-  http<T>(p, { method: "DELETE", body: body ? JSON.stringify(body) : undefined });
+// `signal` is the last optional argument to stay backward compatible with all
+// existing callers. It is merged with the default timeout inside http().
+const get = <T>(p: string, signal?: AbortSignal) => http<T>(p, { signal });
+const post = <T>(p: string, body?: unknown, signal?: AbortSignal) =>
+  http<T>(p, { method: "POST", body: body ? JSON.stringify(body) : undefined, signal });
+const put = <T>(p: string, body?: unknown, signal?: AbortSignal) =>
+  http<T>(p, { method: "PUT", body: body ? JSON.stringify(body) : undefined, signal });
+const patch = <T>(p: string, body?: unknown, signal?: AbortSignal) =>
+  http<T>(p, { method: "PATCH", body: body ? JSON.stringify(body) : undefined, signal });
+const del = <T>(p: string, body?: unknown, signal?: AbortSignal) =>
+  http<T>(p, { method: "DELETE", body: body ? JSON.stringify(body) : undefined, signal });
 
 // Go serializes nil slices as JSON null — coerce to [].
 const arr = <T>(x: T[] | null | undefined): T[] => x ?? [];
@@ -421,12 +492,54 @@ export const api = {
   login: (username: string, password: string) => post<{ token: string }>("/auth/login", { username, password }),
   initPassword: (password: string) => post<{ token: string }>("/auth/init", { password }),
   changePassword: (oldPassword: string, newPassword: string) =>
-    post<{ ok: boolean }>("/auth/change-password", { old_password: oldPassword, new_password: newPassword }),
+    post<{ ok: boolean; token?: string }>("/auth/change-password", { old_password: oldPassword, new_password: newPassword }),
 
   // ---- tasks ----
   tasks: () =>
     get<{ tasks: Task[]; active: string }>("/tasks").then((r) => ({ tasks: arr(r.tasks), active: r.active ?? "" })),
+  // 全局数据洞察（任务/发现/Token 用量按日聚合）；days 7..90。
+  insights: (days = 30) =>
+    get<{
+      days: number;
+      tasks_by_day?: { date: string; created: number; done: number; failed: number }[];
+      findings_by_day?: { date: string; critical: number; high: number; medium: number; low: number; info: number }[];
+      tokens_by_day?: { date: string; input: number; output: number }[];
+      severity_now?: { critical: number; high: number; medium: number; low: number; info: number };
+    }>(`/insights?days=${days}`),
+  // 全局统一搜索：跨任务/发现/对话/资产。
+  globalSearch: (q: string) =>
+    get<{ q: string; items: DataSearchItem[] }>(`/search?q=${encodeURIComponent(q)}&limit=20`).then((r) => ({
+      q: r.q,
+      items: arr<DataSearchItem>(r.items),
+    })),
+  // 任务对比/复盘：A=基线，B=复测；返回 已修复/新发现/复现 三组。
+  tasksCompare: (a: string, b: string) =>
+    get<TaskCompareResult>(`/tasks/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
   task: (id: string) => get<Task>(`/tasks/${encodeURIComponent(id)}`),
+  // ---- multi-agent delegation ledger ----
+  // 子代理台账：list / inspect / cancel。parent 空 = 全部会话；limit 默认 200。
+  subagents: (parent = "", limit = 200) =>
+    get<{ items: SubagentRun[] }>(
+      `/delegations?parent=${encodeURIComponent(parent)}&limit=${limit}`,
+    ).then((r) => ({ items: arr<SubagentRun>(r.items) })),
+  subagent: (id: string) => get<SubagentRun>(`/delegations/${encodeURIComponent(id)}`),
+  cancelSubagent: (id: string, reason?: string) =>
+    post<CancelSubagentResult>(`/delegations/${encodeURIComponent(id)}/cancel`, { reason }),
+  groups: () =>
+    get<{ items: GroupRoomRow[] }>(`/groups`).then((r) => ({ items: arr<GroupRoomRow>(r.items) })),
+  group: (id: string) => get<GroupRoomDetail>(`/groups/${encodeURIComponent(id)}`),
+  createGroup: (input: GroupCreateInput) => post<{ room_id: string }>(`/groups`, input),
+  sendGroupMessage: (id: string, text: string, threadId = "main") =>
+    post<{ status: string; discussion_event_id?: string }>(`/groups/${encodeURIComponent(id)}/messages`, {
+      text,
+      thread_id: threadId,
+    }),
+  stopGroup: (id: string) => post<{ status: string }>(`/groups/${encodeURIComponent(id)}/stop`),
+  continueGroup: (id: string, discussion = "") =>
+    post<{ status: string }>(
+      `/groups/${encodeURIComponent(id)}/continue?discussion=${encodeURIComponent(discussion)}`,
+    ),
+  disbandGroup: (id: string) => post<{ status: string }>(`/groups/${encodeURIComponent(id)}/disband`),
   createTask: (input: {
     name?: string;
     remark?: string;
@@ -614,20 +727,31 @@ export const api = {
   deleteGoal: (id: string, goalId: string) => del<{ ok: boolean }>(`/tasks/${id}/goals/${goalId}`),
 
   // ---- 操作约束管理（总览）----
-  // 本任务全部操作约束（allow/deny）。
+  // 本任务全部操作约束（allow/deny）。match/pattern 非空=结构化 Fence 规则。
   taskConstraints: (id: string) =>
     get<{ constraints: TaskConstraint[] | null }>(`/tasks/${id}/constraints`).then((response) => ({
       constraints: arr(response.constraints),
     })),
   // 新增约束（不通知 planner，下一轮规划自然读到）。
-  addConstraint: (id: string, text: string, kind: TaskConstraint["kind"]) =>
-    post<TaskConstraint>(`/tasks/${id}/constraints`, { text, kind }),
-  // 修改约束（文本 + allow/deny）。
-  updateConstraint: (id: string, constraintId: string, text: string, kind: TaskConstraint["kind"]) =>
-    patch<TaskConstraint>(`/tasks/${id}/constraints/${constraintId}`, { text, kind }),
+  addConstraint: (id: string, text: string, kind: TaskConstraint["kind"], match?: FenceMatch, pattern?: string) =>
+    post<TaskConstraint>(`/tasks/${id}/constraints`, { text, kind, match: match ?? "", pattern: pattern ?? "" }),
+  // 修改约束（文本 + allow/deny + 结构化字段）。
+  updateConstraint: (id: string, constraintId: string, text: string, kind: TaskConstraint["kind"], match?: FenceMatch, pattern?: string) =>
+    patch<TaskConstraint>(`/tasks/${id}/constraints/${constraintId}`, { text, kind, match: match ?? "", pattern: pattern ?? "" }),
   // 删除约束。
   deleteConstraint: (id: string, constraintId: string) =>
     del<{ ok: boolean }>(`/tasks/${id}/constraints/${constraintId}`),
+
+  // ---- Fence 越界授权（总览）----
+  // 本任务越界授权记录 + Fence 激活状态。
+  taskFenceAuthz: (id: string) =>
+    get<{ authorizations: FenceAuthz[] | null; fence_active: boolean }>(`/tasks/${id}/fence-authz`).then((r) => ({
+      authorizations: arr(r.authorizations),
+      fenceActive: !!r.fence_active,
+    })),
+  // 撤销一条越界授权（收回越界边界）。
+  revokeFenceAuthz: (id: string, authzId: string) =>
+    del<{ ok: boolean }>(`/tasks/${id}/fence-authz/${authzId}`),
 
   // ---- 任务级资产拦截/允许规则（总览）----
   taskInterceptRules: (id: string) =>
@@ -1149,7 +1273,7 @@ export const api = {
     put<{ enabled: boolean; username: string; password_set: boolean }>("/settings/basic-auth", settings),
   setSettings: (patch: Partial<Settings>) => put<Settings>(`/settings`, patch),
 
-  // ---- MCP 服务端（ARTEX 对外暴露的 /mcp）：开关、访问令牌、调用审计 ----
+  // ---- MCP 服务端（白泽 对外暴露的 /mcp）：开关、访问令牌、调用审计 ----
   mcpServerSettings: () => get<McpServerSettings>("/mcp-server/settings"),
   setMcpServerEnabled: (enabled: boolean) => put<McpServerSettings>("/mcp-server/settings", { enabled }),
   setMcpServerAccess: (access: { allowed_ips: string[]; trusted_proxies: string[] }) =>
@@ -1262,6 +1386,26 @@ export const api = {
     });
     if (!r.ok) throw new Error(`report: ${r.status}`);
     return r.text();
+  },
+  // 专业渗透测试报告（执行摘要+等级分布+逐条修复建议），html/md 两种格式下载。
+  pentestReport: async (task: string, format: "html" | "md") => {
+    const token = getToken();
+    const r = await apiFetch(
+      `/api/pentest-report?task=${encodeURIComponent(task)}&format=${format}`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    );
+    if (!r.ok) throw new Error(`pentest-report: ${r.status}`);
+    const blob = await r.blob();
+    const disp = r.headers.get("Content-Disposition") ?? "";
+    const filename = downloadFilename(disp, `pentest-report.${format === "md" ? "md" : "html"}`);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   },
   chatMentions: (kind: string, query: string, signal?: AbortSignal, cursor = "") =>
     http<{ items: ChatMention[]; next_cursor?: string }>(
@@ -1498,6 +1642,30 @@ export const api = {
   deleteMcpServer: (id: number) => del<{ deleted: number }>(`/mcp/${id}`),
   mcpTools: (id: number) => get<{ tools: MCPTool[] }>(`/mcp/${id}/tools`).then((r) => arr(r.tools)),
   refreshMcpServer: (id: number) => post<{ tools: MCPTool[] }>(`/mcp/${id}/refresh`, {}).then((r) => arr(r.tools)),
+  // MCP 模板库（只读清单，前端预填表单后走 saveMcpServer）
+  mcpTemplates: () => get<{ templates: MCPTemplate[] }>("/mcp-templates").then((r) => arr(r.templates)),
+  // 连接测试：起临时连接列工具，不落库。tools 返回 {name, description}[]。
+  testMcpServer: (m: Partial<MCPServer>) =>
+    post<{ ok: boolean; tools?: { name: string; description?: string }[]; error?: string }>("/mcp-test", m),
+  // 任务清单导出（CSV/JSON），blob 下载沿用 pentestReport 的约定。
+  exportTasks: async (format: "csv" | "json") => {
+    const token = getToken();
+    const r = await apiFetch(`/api/export/tasks?format=${format}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!r.ok) throw new Error(`export-tasks: ${r.status}`);
+    const blob = await r.blob();
+    const disp = r.headers.get("Content-Disposition") ?? "";
+    const filename = downloadFilename(disp, `artex-tasks.${format}`);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
 
   // ---- 资产同步 (ScopeSentry 数据源) ----
   ssStatus: () =>
@@ -1706,4 +1874,57 @@ export const api = {
   // 202 即返回，实际下载在后台跑，进度走 /api/update/stream。
   applyUpdate: () => post<{ ok: boolean; target: string }>(`/update/apply`),
   rollbackUpdate: () => post<{ ok: boolean }>(`/update/rollback`),
+
+  // ---- 长期记忆（/api/memories、/api/obsidian）----
+  memories: (q: {
+    scope?: string; kind?: string; status?: string; q?: string;
+    entity?: string; company_id?: number; task_id?: number; limit?: number; offset?: number;
+  } = {}) => {
+    const sp = new URLSearchParams();
+    if (q.scope) sp.set("scope", q.scope);
+    if (q.kind) sp.set("kind", q.kind);
+    if (q.status) sp.set("status", q.status);
+    if (q.q) sp.set("q", q.q);
+    if (q.entity) sp.set("entity", q.entity);
+    if (q.company_id) sp.set("company_id", String(q.company_id));
+    if (q.task_id) sp.set("task_id", String(q.task_id));
+    if (q.limit) sp.set("limit", String(q.limit));
+    if (q.offset) sp.set("offset", String(q.offset));
+    return get<{
+      total: number;
+      memories: import("@/lib/types").MemoryItem[];
+    }>(`/memories${sp.size ? `?${sp}` : ""}`);
+  },
+  createMemory: (input: {
+    scope: string; kind: string; title: string; content: string; salience?: number;
+    source?: string; company_id?: number; task_id?: number;
+  }) =>
+    post<{ memory: import("@/lib/types").MemoryItem; created: boolean }>(`/memories`, input),
+  updateMemory: (id: number, data: {
+    title?: string; kind?: string; content?: string; status?: string; salience?: number;
+  }) => patch<{ memory: import("@/lib/types").MemoryItem }>(`/memories/${id}`, data),
+  deleteMemory: (id: number) => del<{ deleted: boolean; id: number }>(`/memories/${id}`),
+  clearAllMemories: () => del<{ deleted: Record<string, number> }>(`/memories/all`),
+  recallMemories: (input: {
+    query?: string; entity?: string; task_id?: number; limit?: number; include_expired?: boolean;
+  }) =>
+    post<{ count: number; memories: import("@/lib/types").MemoryItem[] }>(`/memories/recall`, input),
+  memoryStats: () =>
+    get<{ total: number; stats: import("@/lib/types").MemoryStatItem[]; enabled: boolean }>(`/memories/stats`),
+  memoryEntities: (kind?: string, limit?: number) => {
+    const sp = new URLSearchParams();
+    if (kind) sp.set("kind", kind);
+    if (limit) sp.set("limit", String(limit));
+    return get<{ entities: import("@/lib/types").MemoryEntity[] }>(`/memories/entities${sp.size ? `?${sp}` : ""}`);
+  },
+  memoryGraph: (id: number, q: { company_id?: number; task_id?: number; limit?: number } = {}) => {
+    const sp = new URLSearchParams();
+    if (q.company_id) sp.set("company_id", String(q.company_id));
+    if (q.task_id) sp.set("task_id", String(q.task_id));
+    if (q.limit) sp.set("limit", String(q.limit));
+    return get<import("@/lib/types").MemoryGraph>(`/memories/${id}/graph${sp.size ? `?${sp}` : ""}`);
+  },
+  obsidianSync: (input: { vault?: string; scope?: string; limit?: number }) =>
+    post<{ vault: string; result: import("@/lib/types").ObsidianSyncResult }>(`/obsidian/sync`, input),
+  obsidianStatus: () => get<import("@/lib/types").ObsidianStatus>(`/obsidian/status`),
 };

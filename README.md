@@ -1,6 +1,6 @@
 <div align="center">
 
-# ARTEX
+# BaiZe（白泽）
 
 AI 自主渗透测试系统（Go 后端 + Next.js 前端）
 
@@ -58,7 +58,7 @@ wowo
 ## 审批记录详情
 
 全局「审批记录」、任务内「拦截审批」及对话中的审批卡片均支持展开查看详情。展示结构参考
-[AegisHook 的审批详情组件](https://github.com/RuoJi6/AegisHook/blob/main/web/src/components/CallDetail.vue)，沿用 ARTEX 的组件和主题：
+[AegisHook 的审批详情组件](https://github.com/RuoJi6/AegisHook/blob/main/web/src/components/CallDetail.vue)，沿用 BaiZe 的组件和主题：
 
 
 ## 资产同步（ScopeSentry）
@@ -67,7 +67,7 @@ wowo
 
 - 在「**资产同步**」页填 ScopeSentry 的地址与 API Key，接入数据源；
 - 按**项目**或**任务**维度选择要同步的目标与资产类型（域名 / 子域 / IP / 端口 / 站点 / 端点…）；
-- 一键导入并按公司资产范围归并，直接进入 ARTEX 的资产图供 agent 探索使用。
+- 一键导入并按公司资产范围归并，直接进入 BaiZe 的资产图供 agent 探索使用。
 
 ---
 
@@ -207,7 +207,7 @@ ARTEX_TARGETS=linux/amd64,windows/amd64 ./build.sh --release
 - **开发构建不给更新**：版本号是 `dev` 或 `git describe` 带后缀时禁用，避免正式版覆盖掉本地调试的二进制。
 - **Docker 下只换程序、不换镜像**：镜像里的 playwright / nmap 等工具链不会跟着升级，且 `docker compose up -d` 重建容器后会退回镜像自带的版本。要连镜像一起升级仍请用 `docker compose pull artex && docker compose up -d artex`。
 - **更新代理（可选）**与其他代理设置使用相同的「地址输入框 + 保存」方式。填写独立更新代理后保存，例如 `http://127.0.0.1:7897`；支持 `http://`、`https://`、`socks5://`、`socks5h://` 及用户名密码认证。清空并保存即为直连，不受全局代理或 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量影响。保存后自动重新检查，检查版本、校验和下载和发布包下载使用同一个出口。更新只从 GitHub 域名下载并强制 HTTPS。
-- 代理地址由 **ARTEX 服务端**访问。Docker 内的 `127.0.0.1` 指容器自身；代理运行在宿主机时，应使用容器可达地址（Docker Desktop 通常为 `http://host.docker.internal:7897`），并允许容器访问代理端口。
+- 代理地址由 **BaiZe 服务端**访问。Docker 内的 `127.0.0.1` 指容器自身；代理运行在宿主机时，应使用容器可达地址（Docker Desktop 通常为 `http://host.docker.internal:7897`），并允许容器访问代理端口。
 
 ### 维护者：通过 GitHub Actions 发布在线更新
 
@@ -334,15 +334,15 @@ CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
 
 在 **系统配置 → HTTP Basic Auth** 中填写独立的验证用户名和密码，打开「启用访问验证」并点击「保存访问验证」。默认关闭，保存后立即生效，无需重启；密码至少 8 位、最多 72 字节，用户名不能包含冒号。
 
-开启后，访客先完成浏览器原生账号密码验证，再进入原有 ARTEX 登录页。网页、静态资源和 API 均受保护（MCP 服务端的 `/mcp` 端点除外：它不经过 Basic Auth，也不能用 Basic 账号密码访问，只认访问令牌，见下文「MCP 服务端」），`/api/health` 的 GET/HEAD 健康检查同样需要通过 Basic Auth，未认证时返回 `401`；通过后仅返回 `{"ok":true}`，不暴露应用名称或版本。健康检查不额外要求管理员 JWT；外部探针需要配置相同的 Basic Auth 凭据，例如使用 `curl --fail --user '验证用户名' http://127.0.0.1:8787/api/health` 并按提示输入密码。未启用 Basic Auth 时保留原有的无需凭据探活行为。版本号由需要管理员 JWT 的 `/api/version` 提供，启用访问验证后该接口同时受 Basic Auth 保护。未认证请求的 Basic Auth realm 使用通用名称 `Restricted`；通过访问验证仍需登录 ARTEX 才能使用业务 API。公网部署请通过 HTTPS 访问。
+开启后，访客先完成浏览器原生账号密码验证，再进入原有 BaiZe 登录页。网页、静态资源和 API 均受保护（MCP 服务端的 `/mcp` 端点除外：它不经过 Basic Auth，也不能用 Basic 账号密码访问，只认访问令牌，见下文「MCP 服务端」），`/api/health` 的 GET/HEAD 健康检查同样需要通过 Basic Auth，未认证时返回 `401`；通过后仅返回 `{"ok":true}`，不暴露应用名称或版本。健康检查不额外要求管理员 JWT；外部探针需要配置相同的 Basic Auth 凭据，例如使用 `curl --fail --user '验证用户名' http://127.0.0.1:8787/api/health` 并按提示输入密码。未启用 Basic Auth 时保留原有的无需凭据探活行为。版本号由需要管理员 JWT 的 `/api/version` 提供，启用访问验证后该接口同时受 Basic Auth 保护。未认证请求的 Basic Auth realm 使用通用名称 `Restricted`；通过访问验证仍需登录 BaiZe 才能使用业务 API。公网部署请通过 HTTPS 访问。
 
 从仍使用 `/api/health` 读取版本的旧版网页升级到此版本时，旧页面可能无法自动判断升级完成；服务重启后手动刷新页面即可。新版网页的版本显示和升级轮询均使用 `/api/version`。
 
-配置持久化到数据库，密码仅保存 bcrypt 哈希，界面不会回显。保存时密码留空表示不修改；关闭后保留凭据，方便再次开启。独立的 HttpOnly 验证 Cookie 有效期为 12 小时，兼容现有 JWT 和 SSE。验证过期时，后台请求会触发当前页面重新验证，保留 ARTEX 登录状态，无需新开标签页；保存配置会使其他浏览器的旧验证 Cookie 失效，当前管理员浏览器保持访问。浏览器可能缓存 Basic Auth 凭据，可用新的无痕窗口检查验证弹窗。
+配置持久化到数据库，密码仅保存 bcrypt 哈希，界面不会回显。保存时密码留空表示不修改；关闭后保留凭据，方便再次开启。独立的 HttpOnly 验证 Cookie 有效期为 12 小时，兼容现有 JWT 和 SSE。验证过期时，后台请求会触发当前页面重新验证，保留 BaiZe 登录状态，无需新开标签页；保存配置会使其他浏览器的旧验证 Cookie 失效，当前管理员浏览器保持访问。浏览器可能缓存 Basic Auth 凭据，可用新的无痕窗口检查验证弹窗。
 
 Docker 和内嵌前端二进制直接支持此功能。`next dev` 的认证检查仅向本机回环后端转发凭据（`localhost`、`127.0.0.1` 或 `::1`）；前端与后端应使用同一主机名。远程开发后端未开启验证时仍可使用；开启后请通过内嵌前端访问远程服务，避免跨域验证 Cookie 问题。
 
-若遗忘独立验证密码，可在服务器连接应用数据库后执行以下语句并重启 ARTEX，关闭这层访问验证，再用原有 ARTEX 账号登录后重新配置：
+若遗忘独立验证密码，可在服务器连接应用数据库后执行以下语句并重启 BaiZe，关闭这层访问验证，再用原有 BaiZe 账号登录后重新配置：
 
 ```sql
 UPDATE settings
@@ -353,9 +353,9 @@ WHERE key = 'auth.http_basic';
 
 ### MCP 服务端（供外部智能体编排任务）
 
-ARTEX 可以作为 MCP 服务端，让外部智能体（个人助手、bot 等）查看任务与漏洞、创建任务、暂停或恢复任务。
+BaiZe 可以作为 MCP 服务端，让外部智能体（个人助手、bot 等）查看任务与漏洞、创建任务、暂停或恢复任务。
 
-注意区分：「系统 → MCP」页面管理的是 ARTEX 自己的 agent **去调用**的外部 MCP；本文说的是 ARTEX **对外提供**的 MCP 端点。
+注意区分：「系统 → MCP」页面管理的是 BaiZe 自己的 agent **去调用**的外部 MCP；本文说的是 BaiZe **对外提供**的 MCP 端点。
 
 #### 开启与接入
 
@@ -365,7 +365,7 @@ ARTEX 可以作为 MCP 服务端，让外部智能体（个人助手、bot 等�
 
 | 项 | 值 |
 | --- | --- |
-| 地址 | `https://<你的 ARTEX 地址>/mcp` |
+| 地址 | `https://<你的 BaiZe 地址>/mcp` |
 | 传输 | Streamable HTTP（无状态，只响应 `application/json`，不提供 SSE，不支持 stdio） |
 | 鉴权 | 请求头 `Authorization: Bearer artex_mcp_...` |
 
@@ -377,7 +377,7 @@ curl -s https://artex.example.com/mcp \
 
 #### 无法使用 HTTP Basic Auth
 
-`/mcp` **不经过** HTTP Basic Auth 验证，也**不接受** Basic 账号密码、ARTEX 登录密码或管理员登录后的 JWT，只认访问令牌。
+`/mcp` **不经过** HTTP Basic Auth 验证，也**不接受** Basic 账号密码、BaiZe 登录密码或管理员登录后的 JWT，只认访问令牌。
 
 原因：一个 HTTP 请求只有一个 `Authorization` 头，外部智能体无法同时带上 Basic 凭证和 Bearer 令牌。因此：
 
@@ -391,7 +391,7 @@ curl -s https://artex.example.com/mcp \
 
 - 白名单在令牌之前检查：不在名单内的来源即使持有有效令牌也会被拒绝，返回 `403`，响应里带有服务器看到的来源地址，便于排查。
 - 白名单只作用于 `/mcp`，不影响网页和管理 API，填错不会把自己锁在后台之外。
-- **部署在反向代理之后**：此时直连地址永远是代理。需要把代理地址填进「可信代理」，ARTEX 才会改用 `X-Forwarded-For` 里的地址作为来源（从右往左取第一个不属于可信代理的地址）。不填可信代理时该请求头一律忽略，避免调用方伪造来源。代理需要把真实来源追加到该请求头，例如 nginx 的 `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`。
+- **部署在反向代理之后**：此时直连地址永远是代理。需要把代理地址填进「可信代理」，BaiZe 才会改用 `X-Forwarded-For` 里的地址作为来源（从右往左取第一个不属于可信代理的地址）。不填可信代理时该请求头一律忽略，避免调用方伪造来源。代理需要把真实来源追加到该请求头，例如 nginx 的 `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`。
 - 卡片里会显示「服务器看到的你当前的来源地址」，可用来确认可信代理是否配置正确。
 
 #### 权限范围与工具
@@ -408,7 +408,7 @@ curl -s https://artex.example.com/mcp \
 | `task:create` | `spawn_task` | 新建并启动任务，可带 `company_ids`、`category_id` |
 | `task:control` | `pause_task` / `resume_task` / `add_task_hint` | 暂停、恢复、补充提示 |
 
-ARTEX 没有独立的「项目」实体。智能体说的“某个项目”对应某个企业或某个任务分类下的一组任务。
+BaiZe 没有独立的「项目」实体。智能体说的“某个项目”对应某个企业或某个任务分类下的一组任务。
 
 不会暴露的能力：建/改自定义工具、MCP、skill，workspace 文件读写，LLM 密钥，系统设置。
 
@@ -505,7 +505,7 @@ server {
 
 ## 系统技术架构
 
-ARTEX 是一套 **LLM 多 agent 驱动的自主渗透系统**：Go 单体后端（内嵌 Next.js 前端）+ PostgreSQL，agent 能力由 [`norma`](https://github.com/Autumn-27/norma) SDK 提供（`agentcore` / `tool` / `permission` / `harness` / `memory` / `transcript`）。核心是**双图架构**，以及围绕它的两条自主性机制：**worker 间过程级信息交换**与 **planner 多轮共享 todolist 稳定攻击链路**。
+BaiZe 是一套 **LLM 多 agent 驱动的自主渗透系统**：Go 单体后端（内嵌 Next.js 前端）+ PostgreSQL，agent 能力由 [`norma`](https://github.com/Autumn-27/norma) SDK 提供（`agentcore` / `tool` / `permission` / `harness` / `memory` / `transcript`）。核心是**双图架构**，以及围绕它的两条自主性机制：**worker 间过程级信息交换**与 **planner 多轮共享 todolist 稳定攻击链路**。
 
 ### 总体分层
 
@@ -669,7 +669,7 @@ flowchart TB
   R3["第 3 轮（②产出 fact）　派意图③"] --> T3
 ```
 
-于是攻击链在“事件驱动 + 无状态会话”的环境下依然**稳定推进、不重复、不错序**——这是 ARTEX 能自主走完多步利用链的关键。
+于是攻击链在“事件驱动 + 无状态会话”的环境下依然**稳定推进、不重复、不错序**——这是 BaiZe 能自主走完多步利用链的关键。
 
 ---
 
@@ -699,7 +699,7 @@ https://github.com/oritera/Cairn
 
 > ⚠️ **重要提示**：开源协议本身不限制软件的使用用途。以下的「使用限制」与「免责声明」是作者对使用者的额外约定与郑重声明，请务必遵守。
 
-**ARTEX 仅供个人学习、代码研究与本地技术验证使用，不得用于对任何线上系统或网站发起实际测试。**
+**BaiZe 仅供个人学习、代码研究与本地技术验证使用，不得用于对任何线上系统或网站发起实际测试。**
 
 ### 允许使用范围
 

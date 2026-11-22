@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/baize/db"
 	"github.com/Autumn-27/norma/agentcore"
 	"github.com/Autumn-27/norma/llm"
 	acperm "github.com/Autumn-27/norma/permission"
@@ -127,7 +127,7 @@ func DecomposeGoalsWithProvider(ctx context.Context, prov llm.Provider, dataDir,
 	// Description rides in the user message (same channel as the goal), NOT via the
 	// {{.EngagementDescription}} template var — else a prompt that references the var
 	// would inject the description twice. System prompt stays pure static instructions.
-	sys := renderSystem("goals", goalsDefaultTmpl, GoalsVars{DataDir: dataDir, Now: nowStr()})
+	sys := renderSystem("goals", goalsDefaultTmpl, GoalsVars{DataDir: dataDir, Now: nowStr(), TaskID: taskID})
 	// set_constraints 始终可用(不依赖 asset store):正文已含「先抽操作约束再拆目标」这步
 	// (可在 agent 编辑页改措辞),这里只需接上工具。
 	tools := []actool.CoreTool{tsx.setGoals(), tsx.setConstraints()}

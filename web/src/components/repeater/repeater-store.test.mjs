@@ -582,3 +582,37 @@ test("evidence import preserves captured request line and protocol rather than r
   assert.equal(imported.targetOrigin, "https://example.test");
   assert.equal(buildRawRequest(imported), imported.rawRequest);
 });
+
+test("flush redacts credentials and prefers sessionStorage without mutating live state", (t) => {
+  const previousWindow = globalThis.window;
+  const sessionWrites = [];
+  const localWrites = [];
+  globalThis.window = {
+    sessionStorage: { setItem: (key, value) => sessionWrites.push({ key, value }) },
+    localStorage: { setItem: (key, value) => localWrites.push({ key, value }) },
+  };
+  const workspace = defaultWorkspace();
+  const tab = workspace.tabs[0];
+  tab.headersText = "Host: example.test\nAuthorization: Bearer secret\nx-api-token: abc123\nCookie: session=xyz";
+  tab.rawRequest = "GET / HTTP/1.1\nAuthorization: Bearer secret\n\nbody";
+  tab.response = response();
+  tab.response.headers["Set-Cookie"] = ["sid=secret"];
+  useRepeaterStore.setState({ workspace, inflight: {} });
+  t.after(() => {
+    useRepeaterStore.setState({ workspace: null, inflight: {} });
+    flush();
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  });
+  flush();
+  assert.equal(sessionWrites.length, 1);
+  assert.equal(localWrites.length, 0);
+  const saved = JSON.parse(sessionWrites[0].value).tabs[0];
+  assert.match(saved.headersText, /Authorization: \[REDACTED\]/);
+  assert.match(saved.headersText, /x-api-token: \[REDACTED\]/);
+  assert.match(saved.headersText, /Cookie: \[REDACTED\]/);
+  assert.match(saved.rawRequest, /Authorization: \[REDACTED\]/);
+  assert.deepEqual(saved.response.headers["Set-Cookie"], ["[REDACTED]"]);
+  assert.match(tab.headersText, /Bearer secret/);
+  assert.match(tab.rawRequest, /Bearer secret/);
+});

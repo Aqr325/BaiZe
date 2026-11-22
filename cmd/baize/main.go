@@ -1,4 +1,4 @@
-// Command artex runs the ARTEX backend: the dual SQLite graph stores,
+// Command baize runs the BaiZe backend: the dual SQLite graph stores,
 // the event-driven exploration engine, and the JSON HTTP API consumed by the
 // shadcn/ui frontend.
 package main
@@ -8,18 +8,20 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/config"
-	"github.com/Autumn-27/artex/selfupdate"
-	"github.com/Autumn-27/artex/server"
+	"github.com/Autumn-27/baize/agent"
+	"github.com/Autumn-27/baize/config"
+	"github.com/Autumn-27/baize/selfupdate"
+	"github.com/Autumn-27/baize/server"
 )
 
 // version is the build version, injected at release time via
@@ -40,6 +42,31 @@ func printBanner(addr string) {
 	fmt.Println("  AI 自主渗透测试系统")
 	fmt.Printf("  版本 %s  ·  %s/%s  ·  %s  ·  监听 %s\n\n",
 		version, runtime.GOOS, runtime.GOARCH, runtime.Version(), addr)
+}
+
+// warnIfExposed 在监听地址不是回环时打一条醒目告警。
+//
+// 默认 --addr 是 ":8787"，即绑定所有网卡——白泽是个自带管理界面和 Agent 控制台
+// 的渗透工具，暴露到局域网等于把控制台递给同网段的任何一台机器（能否真的进去
+// 只取决于 Basic Auth 是否启用、密码够不够硬，这两样都是配置项、都可能被漏掉）。
+//
+// 这里只告警、不改默认值：默认绑全网卡是有真实用途的（用户常从另一台机器打开
+// 后台），改掉会直接破坏既有部署习惯。让"正在暴露"这件事在日志里藏不住，比
+// 悄悄替用户改行为更合适。
+func warnIfExposed(addr string) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	switch strings.ToLower(host) {
+	case "127.0.0.1", "::1", "localhost":
+		return
+	}
+	log.Printf("==================================================================")
+	log.Printf(" [暴露告警] 白泽监听 %s（非回环地址），局域网内其他主机可直接访问", addr)
+	log.Printf(" [暴露告警] 请确认已启用 HTTP Basic Auth 并设置了强密码；")
+	log.Printf(" [暴露告警] 若仅在本机使用，请改为 --addr 127.0.0.1:8787 避免暴露。")
+	log.Printf("==================================================================")
 }
 
 // main only maps run's result onto the process exit code. The exit code is part
@@ -63,6 +90,7 @@ func run() int {
 	server.BuildVersion = version
 
 	printBanner(*addr)
+	warnIfExposed(*addr)
 
 	// capture backend logs into the in-memory sink (still to stderr) so the /logs
 	// page can show a live log stream. Do this first, to catch startup logs too.
@@ -118,10 +146,15 @@ func run() int {
 		Addr:              *addr,
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		// IdleTimeout 防 keep-alive 空闲连接无限累积（默认 0=永不超时，慢客户端/
+		// 僵尸连接会耗尽 FD）。不加 WriteTimeout：SSE/stream 长连接（日志流、
+		// 更新流）会被写超时杀掉。
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1MB 显式上限，防超大头部
 	}
 
 	go func() {
-		log.Printf("ARTEX %s backend listening on %s (data=%s, workers=%d)", version, *addr, *dataDir, mgr.Workers())
+		log.Printf("BaiZe %s backend listening on %s (data=%s, workers=%d)", version, *addr, *dataDir, mgr.Workers())
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("serve: %v", err)
 		}
@@ -139,7 +172,7 @@ func run() int {
 	}
 
 	log.Println("shutting down...")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(shutdownCtx)
 	return code

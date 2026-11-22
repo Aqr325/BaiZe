@@ -95,6 +95,17 @@ func (d *DB) Assets() *AssetStore {
 	return &AssetStore{db: d, company: d.Companies()}
 }
 
+// Memories exposes the long-term memory store (db/memories.go) so an agent's tool
+// set can reach save_memory/recall_memories without a separate *DB dependency.
+// A nil DB (scoped copies built with a tx) yields nil, and the memory tools then
+// report themselves unavailable instead of crashing.
+func (s *AssetStore) Memories() *MemoryStore {
+	if s.db == nil {
+		return nil
+	}
+	return s.db.Memories()
+}
+
 // Companies returns the company store associated with this asset store.
 func (s *AssetStore) Companies() *CompanyStore { return s.company }
 

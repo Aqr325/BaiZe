@@ -49,6 +49,10 @@ func (r RetryRule) Or(fallback RetryRule) RetryRule {
 const (
 	maxRetryAttempts   = 20
 	maxRetryIntervalMS = 3600_000 // 1h
+	// Total-call budget bounds the SUM of HTTP attempts across all five layers
+	// for one intent. It must be far above the per-layer caps (which multiply),
+	// but low enough to stop a runaway provider from burning hundreds of calls.
+	maxCallBudget = 5000
 )
 
 // Clamped returns the rule with out-of-range values pulled back into the sane
@@ -91,14 +95,27 @@ type LLMRetryPolicy struct {
 	Breaker RetryRule `json:"breaker"`
 	// Intent：worker 以 model_error 收场后的整条意图重跑。默认 2 次、固定 3s。
 	Intent RetryRule `json:"intent"`
+	// Budget：单意图跨全部五层的 HTTP 调用总数上限（不是第六层重试，而是总量闸）。
+	// 0 = 用内置保守默认；-1 = 关闭该闸；>0 = 用该值（上限 5000）。
+	Budget int `json:"budget"`
 }
 
 // Clamped returns the policy with every rule clamped.
 func (p LLMRetryPolicy) Clamped() LLMRetryPolicy {
 	p.Connect, p.Empty, p.Stream = p.Connect.Clamped(), p.Empty.Clamped(), p.Stream.Clamped()
 	p.Breaker, p.Intent = p.Breaker.Clamped(), p.Intent.Clamped()
+	if p.Budget < -1 {
+		p.Budget = -1
+	}
+	if p.Budget > maxCallBudget {
+		p.Budget = maxCallBudget
+	}
 	return p
 }
+
+// CallBudget returns the configured per-intent total-call cap. 0 maps to the
+// caller's built-in default; -1 disables the cap; positive values are used as-is.
+func (p LLMRetryPolicy) CallBudget() int { return p.Budget }
 
 // LLMRetryPolicy reads the global retry policy. A missing or unparseable value
 // yields the zero policy — i.e. every layer on its built-in default.

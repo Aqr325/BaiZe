@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/notify"
+	"github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/notify"
 )
 
 // 全局设置键（存在 settings 键值表里，无需建表）。
@@ -58,7 +58,27 @@ const (
 	// notifySendTimeout 是单次投递的超时。它同时决定上一条常量的取值，
 	// 两者相乘不能超过 notifyLease，见 TestNotifyTickBudgetFitsWithinLease。
 	notifySendTimeout = 30 * time.Second
+	// notifyHealthStaleAfter 是「引擎疑似停摆」的判定阈值。tick 是 3 秒，
+	// 取 30 秒（10 倍余量）：超过这个时间没有一次成功轮询，就算队列里一条
+	// pending 都没有、DB 统计全绿，也应当让人看见引擎已经不转了。
+	notifyHealthStaleAfter = 30 * time.Second
+	// notifyHealthFailThreshold 是引擎级连续失败次数达到多少就报 degraded，
+	// 对齐 dsh-superagent 的「连续 3 次才报健康问题」语义：单次抖动不算故障。
+	notifyHealthFailThreshold = 3
 )
+
+// notifyEngineHealth 是投递引擎自身的运行时健康快照。
+//
+// 它与 db.NotificationStats 互补：后者数的是队列里的投递行（pending/failed/
+// backlog），反映的是「消息」的状态；这里反映的是 dispatcher 这个 goroutine
+// 自己是否还在正常轮询。FanOut/List 一旦持续失败，队列里可能空空如也、
+// DB 指标全绿，但通知其实已经停摆——没有这个快照就只能在日志里发现。
+type notifyEngineHealth struct {
+	State               string    `json:"state"` // ok | degraded | stale | unknown
+	LastTickAt          time.Time `json:"last_tick_at"`
+	ConsecutiveFailures int       `json:"consecutive_failures"`
+	LastError           string    `json:"last_error,omitempty"`
+}
 
 // notifyBackoff 是失败重试的退避序列，下标为已尝试次数。
 // 3 次机会（含首次）与 db.MaxNotifyAttempts 对应，两者必须一起改。
@@ -81,6 +101,11 @@ type Notifier struct {
 	// 不值得为它引入更细粒度的结构。
 	mu      sync.Mutex
 	buckets map[int64]*notifyBucket
+
+	// healthMu 保护 health。dispatcher  goroutine 写、HTTP handler 读，
+	// 两者并发，故单独一把锁（不复用 buckets 的 mu，避免健康查询被限流桶操作阻塞）。
+	healthMu sync.RWMutex
+	health   notifyEngineHealth
 }
 
 // notifyBucket 是单渠道的令牌桶。
@@ -94,7 +119,50 @@ type notifyBucket struct {
 }
 
 func newNotifier(s *Server) *Notifier {
-	return &Notifier{s: s, pg: s.m.pg, buckets: map[int64]*notifyBucket{}}
+	return &Notifier{
+		s:       s,
+		pg:      s.m.pg,
+		buckets: map[int64]*notifyBucket{},
+		health:  notifyEngineHealth{State: "ok"},
+	}
+}
+
+// Health 返回引擎运行时的健康快照（供通知页展示）。
+// 与 DB 统计分开：这里回答的是「投递引擎还活着吗、最近有没有卡」。
+func (n *Notifier) Health() notifyEngineHealth {
+	n.healthMu.RLock()
+	defer n.healthMu.RUnlock()
+	h := n.health
+	switch {
+	case h.ConsecutiveFailures >= notifyHealthFailThreshold:
+		h.State = "degraded"
+	case h.LastTickAt.IsZero() || time.Since(h.LastTickAt) > notifyHealthStaleAfter:
+		// 按读取时刻判定：即使 dispatcher 彻底不再轮询（连 recordTick 都不跑），
+		// 这里也能发现「太久没动静」。degraded 优先于 stale——正在报错比单纯
+		// 没动静更需要关注。
+		h.State = "stale"
+	default:
+		h.State = "ok"
+	}
+	return h
+}
+
+// recordTick 记录一轮轮询的结果。err 为 nil 表示这一轮引擎级操作
+// （分派 + 读渠道）都成功；否则累加连续失败次数并留下最后错误。
+func (n *Notifier) recordTick(err error) {
+	n.healthMu.Lock()
+	defer n.healthMu.Unlock()
+	now := time.Now()
+	n.health.LastTickAt = now
+	if err == nil {
+		n.health.ConsecutiveFailures = 0
+		n.health.LastError = ""
+		n.health.State = "ok"
+		return
+	}
+	n.health.ConsecutiveFailures++
+	n.health.LastError = err.Error()
+	// state 由 Health() 读取时按阈值/时间判定，这里不写死。
 }
 
 // Run 循环直到 ctx 结束。由 server.New 启动一次。
@@ -109,7 +177,7 @@ func (n *Notifier) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			n.step(ctx)
+			keepalive("notify", func() { n.step(ctx) })
 		}
 	}
 }
@@ -124,13 +192,18 @@ func (n *Notifier) step(ctx context.Context) {
 	}
 	if _, _, err := n.pg.FanOutPendingEvents(ctx, notifyFanOutPerTick); err != nil {
 		log.Printf("[notify] 分派事件失败: %v", err)
+		n.recordTick(err)
 		return
 	}
 	channels, err := n.pg.ListNotificationChannels(ctx)
 	if err != nil {
 		log.Printf("[notify] 读取渠道失败: %v", err)
+		n.recordTick(err)
 		return
 	}
+	// 分派与读渠道都成功：记录一次健康轮询（单渠道投递失败另由投递行承载，
+	// 不算引擎级故障，不在这里累加）。
+	n.recordTick(nil)
 	baseURL := n.publicBaseURL()
 	for _, ch := range channels {
 		if !ch.IsEnabled() {

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/baize/agent"
+	"github.com/Autumn-27/baize/db"
 )
 
 // 没有任何配置时，解析结果必须是全零 —— 也就是 SDK 与 task_llm 各自的内置默认，
@@ -93,5 +93,18 @@ func TestRetryRuleClamp(t *testing.T) {
 	}
 	if got.StreamAttempts != 20 || got.StreamInterval != time.Hour {
 		t.Fatalf("stream=%d/%v, want the 20-attempt / 1h caps", got.StreamAttempts, got.StreamInterval)
+	}
+}
+
+// With no DB the call budget falls back to the built-in conservative default,
+// so a fresh install is protected without any configuration.
+func TestCallBudgetLimitDefault(t *testing.T) {
+	var e *Engine // nil receiver path
+	if got := e.callBudgetLimit(); got != agent.DefaultIntentCallBudget {
+		t.Fatalf("callBudgetLimit=%d, want default %d", got, agent.DefaultIntentCallBudget)
+	}
+	e2 := &Engine{}
+	if got := e2.callBudgetLimit(); got != agent.DefaultIntentCallBudget {
+		t.Fatalf("callBudgetLimit=%d, want default %d", got, agent.DefaultIntentCallBudget)
 	}
 }

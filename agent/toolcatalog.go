@@ -30,7 +30,7 @@ type ToolSeed struct {
 // 刻意【不含】SDK 通用工具 actool.DefaultTools()（Read/Write/Edit/MultiEdit/LS/Glob/
 // Grep/Bash）：它们每个 agent 都固定拥有、没有「绑定到谁」的取舍，且说明大多在 Prompt()
 // 里（本表只覆盖 Description()，会造成半覆盖误导）。不 seed → 无 DB 行 → ToolResolve
-// 原样放行、不覆盖，行为与从前一致。只有 artex 自己的领域工具入表可管。
+// 原样放行、不覆盖，行为与从前一致。只有 baize 自己的领域工具入表可管。
 func builtinToolsByAgent() map[string][]actool.CoreTool {
 	ts := NewToolSet(nil, "")
 	return map[string][]actool.CoreTool{
@@ -39,15 +39,15 @@ func builtinToolsByAgent() map[string][]actool.CoreTool {
 		"worker":    ts.WorkerTools(),
 		// goals（目标拆解器）默认绑 set_goals + set_constraints：靠它们把拆出的目标、
 		// 抽出的操作约束写进库。与 mainagent 共用同一受管工具，web 端可改描述/schema、按 agent 勾选。
-		"goals": {ts.setGoals(), ts.setConstraints()},
+		"goals": {ts.setGoals(), ts.setConstraints(), ts.saveMemory(), ts.recallMemories()},
 		// auto 默认绑漏洞上报 + 资产管理工具，其他域工具可在 UI 按需勾选。
 		// 新库由此 seed 写入；老库由 seedAutoDefaultBindings 迁移。
-		"auto": {ts.addFinding(), ts.insertAssets(), ts.addCompanyScope(), ts.listAssets(), ts.listCompanies()},
+		"auto": {ts.addFinding(), ts.insertAssets(), ts.addCompanyScope(), ts.listAssets(), ts.listCompanies(), ts.saveMemory(), ts.recallMemories()},
 		// asset_mapper 只读资产库，供资产梳理和拓扑解释使用。
 		"asset_mapper": {ts.listAssets(), ts.listCompanies()},
 		// pentest（独立渗透 agent）默认绑：查资产 / 插资产 / 报漏洞 / 查漏洞 / 查企业。
 		// 新库由此 seed 写入；老库由 seedPentestDefaultBindings 迁移。
-		"pentest": {ts.listAssets(), ts.insertAssets(), ts.addFinding(), ts.listFindings(), ts.listCompanies()},
+		"pentest": {ts.listAssets(), ts.insertAssets(), ts.addFinding(), ts.listFindings(), ts.listCompanies(), ts.saveMemory(), ts.recallMemories()},
 	}
 }
 

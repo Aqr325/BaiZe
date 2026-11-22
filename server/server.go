@@ -13,20 +13,23 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept"
-	"github.com/Autumn-27/artex/intercept/jev"
-	"github.com/Autumn-27/artex/llmpool"
-	"github.com/Autumn-27/artex/llmrec"
-	"github.com/Autumn-27/artex/report"
-	"github.com/Autumn-27/artex/traffic"
+	"github.com/Autumn-27/baize/agent"
+	"github.com/Autumn-27/baize/agent/delegation"
+	"github.com/Autumn-27/baize/agent/group"
+	"github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/intercept"
+	"github.com/Autumn-27/baize/intercept/jev"
+	"github.com/Autumn-27/baize/llmpool"
+	"github.com/Autumn-27/baize/llmrec"
+	"github.com/Autumn-27/baize/report"
+	"github.com/Autumn-27/baize/traffic"
 	"github.com/Autumn-27/norma/llm"
 	actool "github.com/Autumn-27/norma/tool"
 	"github.com/Autumn-27/norma/transcript"
@@ -45,13 +48,25 @@ type Server struct {
 	engine     *Engine
 	ctx        context.Context
 	dataDir    string
+	// notifier 是漏洞推送投递引擎，保留引用供通知页读取其运行时健康快照。
+	notifier   *Notifier
 	metricsMu  sync.Mutex
 	lastCPUUse uint64
 	lastCPUAt  time.Time
+	// lastLogPrune 是上次 server_logs 保留策略修剪时刻（log_retention.go）。
+	lastLogPrune time.Time
 
 	skillDir  string // root directory for skill subdirectories
 	jwtKey    []byte // HS256 signing key loaded from / generated into dataDir/jwt.key
-	basicAuth basicAuthGate
+	// authTokenVerMu guards the cached admin-JWT version. The version lives in
+	// settings (auth.token_version) and is loaded once at startup; it is bumped
+	// under this mutex on password change so old tokens are revoked immediately.
+	authTokenVerMu sync.RWMutex
+	authTokenVer   string
+	basicAuth      basicAuthGate
+	// authLimit 是认证接口的速率限制器（auth_ratelimit.go）。登录/改密/初始化/
+	// Basic Auth 四条路径共用，防止对本地暴露端口的暴力破解。
+	authLimit *authLimiter
 
 	// mcpStoreOverride replaces the PostgreSQL-backed MCP server store in tests.
 	mcpStoreOverride mcpStore
@@ -143,7 +158,19 @@ type Server struct {
 	// proxyProbe is injectable for deterministic reconnect race tests. Production
 	// servers leave it nil and use probeEgress directly.
 	proxyProbe func(context.Context, string, string, []string, time.Duration) egressProbeResult
-	side       *sideQuestionState
+	side       *SideQuestions
+	// delegationSvc is the multi-agent subagent lifecycle service (wired by
+	// wireDelegation). Handlers for /api/delegations use it to list, cancel and
+	// inspect in-flight subagents; nil when delegation is not wired.
+	delegationSvc *delegation.LifecycleService
+
+	// groupMu serializes per-room discussion runs: at most one turn loop per
+	// room, so a user message cannot interleave with an in-flight member turn.
+	groupMu sync.Mutex
+	// groupRunning tracks rooms with an active turn loop (roomID -> cancel).
+	groupRunning map[string]context.CancelFunc
+	// groupLimits are the discussion scheduling ceilings (3 rounds, 10 messages).
+	groupLimits group.Limits
 }
 
 // provEntry is a cached provider + its config for one LLM profile id.
@@ -180,10 +207,20 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		triggerActive: map[string]int{}, triggerCfg: map[string]triggerBehavior{}, proxyPoolWake: make(chan struct{}, 1), proxyPoolProbeSem: make(chan struct{}, proxyPoolMaxProbeConcurrency),
 		profChatAgents: map[int64]*agent.ChatAgent{},
 		provByProfile:  map[int64]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
-		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1), credentialWake: make(chan struct{}, 1)}
+		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1), credentialWake: make(chan struct{}, 1),
+		groupRunning: map[string]context.CancelFunc{}, groupLimits: group.DefaultLimits(),
+		authTokenVer: defaultAuthTokenVersion}
 	m.SetTaskControlMutex(&s.concMu)
 	s.initSideQuestions()
+	s.authLimit = newAuthLimiter(nil)
 	if m.pg != nil {
+		// Load the persisted token version once. Direct DB reads on every
+		// request were avoided deliberately (settings lookups are cheap but
+		// appear on every authenticated call); the in-memory cache is updated
+		// atomically by commitPasswordChange.
+		if v, _, err := m.pg.GetSetting(authTokenVersionKey); err == nil && v != "" {
+			s.authTokenVer = v
+		}
 		if err := s.basicAuth.load(m.pg); err != nil {
 			log.Fatalf("[auth] load HTTP Basic Auth: %v", err)
 		}
@@ -219,6 +256,8 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	// override row, agents keep their built-in defaults — behavior is unchanged.
 	if m.pg != nil {
 		agent.OpsecEnabled = func() bool { return m.pg.GetBool(settingOpsecEnabled, false) }
+		// 长期记忆：接线到 memories 表，agent 系统提示词据此注入【已沉淀记忆】。
+		s.wireMemoryHooks()
 		agent.PromptOverride = func(key string) (string, bool) {
 			a, err := m.pg.GetAgentByKey(key)
 			if err != nil || a == nil {
@@ -270,6 +309,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		wireAgentAugment(m.pg, s.skillDir, s.hostTools) // 可见 skills/MCP + 流量/编排 host 工具装配进 agent 工具集
 		domainReg := buildDomainReg(m.Assets())
 		wireTools(m.pg, domainReg) // 内置工具表：按 agent 过滤 + 覆盖描述/schema + 注入默认值
+		s.wireDelegation()         // 多智能体协同：lifecycle + delegate_task 工具 + 子代理 provider/store/dir
 		seedPrompts(m.pg)          // 内置 agent 默认提示词正文播种进 agent_prompts(仅空时)
 		s.seedOrchestrationTools() // P2 跨任务编排工具 seed 进 tools 表(可按 agent 绑定)
 		if err := s.seedFindingRetester(); err != nil {
@@ -280,7 +320,8 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		// Calendar scheduler starts after persisted tasks are restored.
 		// 漏洞 IM 推送投递引擎。与 Scheduler 并列但独立：推送的实时性要求(3s)
 		// 与触发器的业务节奏不同，且两者失败互不牵连——推送卡住不该影响 agent 触发。
-		go newNotifier(s).Run(s.ctx)
+		s.notifier = newNotifier(s)
+		go s.notifier.Run(s.ctx)
 		// Fill the tool cache for any enabled MCP that has none yet (notably the
 		// seeded browser MCP on first run). Async so it never blocks startup.
 		go s.discoverEmptyMCPsOnStartup()
@@ -303,6 +344,10 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		log.Printf("[engine] no LLM provider configured — engine idle until set via /api/llm or env")
 	}
 	s.restoreTaskRuntimes()
+	// Restore any group discussion that was mid-flight when the process stopped.
+	// The policy planner replays each room's persisted log and re-launches the
+	// turn loop only for rooms with an open (non-stopped, non-settled) thread.
+	s.resumeGroupDiscussions()
 	s.ensureProxySupervisor()
 	s.proxyPoolWG.Add(1)
 	go func() { defer s.proxyPoolWG.Done(); s.runProxyPoolSupervisor(s.ctx) }()
@@ -816,6 +861,22 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/logs/history", s.getLogsHistory)
 	mux.HandleFunc("GET /api/logs/stream", s.streamLogs)
 
+	// 可配置扫描工作流 + 自动化模式（AET 风格）：列出 / 运行命名场景流水线。
+	mux.HandleFunc("GET /api/enrich/scenarios", s.listScenarios)
+	mux.HandleFunc("POST /api/enrich/scenarios/run", s.runScenarioHandler)
+	// 长期记忆管理（memories 表）。
+	mux.HandleFunc("GET /api/memories", s.listMemories)
+	mux.HandleFunc("POST /api/memories", s.createMemory)
+	mux.HandleFunc("PATCH /api/memories/{id}", s.updateMemory)
+	mux.HandleFunc("DELETE /api/memories/{id}", s.deleteMemory)
+	mux.HandleFunc("DELETE /api/memories/all", s.clearAllMemories)
+	mux.HandleFunc("POST /api/memories/recall", s.recallMemories)
+	mux.HandleFunc("GET /api/memories/stats", s.memoryStats)
+	mux.HandleFunc("GET /api/memories/entities", s.listMemoryEntities)
+	mux.HandleFunc("GET /api/memories/{id}/graph", s.memoryEntityGraph)
+	mux.HandleFunc("POST /api/obsidian/sync", s.syncObsidian)
+	mux.HandleFunc("GET /api/obsidian/status", s.obsidianStatus)
+
 	// 页面一键更新。走的是默认的 JWT 鉴权（auth.go 只放行 /api/auth/* 和
 	// /api/health），所以这几个改动程序自身的接口天然需要登录。
 	mux.HandleFunc("GET /api/update/settings", s.getUpdateSettings)
@@ -827,6 +888,20 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/tasks", s.listTasks)
 	mux.HandleFunc("POST /api/tasks", s.createTask)
+	// Multi-agent delegation ledger: list / inspect / cancel subagents.
+	mux.HandleFunc("GET /api/delegations", s.listSubagents)
+	mux.HandleFunc("GET /api/delegations/{id}", s.getSubagent)
+	mux.HandleFunc("POST /api/delegations/{id}/cancel", s.cancelSubagent)
+
+	// Group chat (hermes Bot Mode rooms): shared rooms where 2-6 Bots answer
+	// the user's message in up to 3 serial rounds, steered by @mentions.
+	mux.HandleFunc("GET /api/groups", s.groupList)
+	mux.HandleFunc("POST /api/groups", s.groupCreate)
+	mux.HandleFunc("GET /api/groups/{id}", s.groupGet)
+	mux.HandleFunc("POST /api/groups/{id}/messages", s.groupSendMessage)
+	mux.HandleFunc("POST /api/groups/{id}/stop", s.groupStop)
+	mux.HandleFunc("POST /api/groups/{id}/continue", s.groupContinue)
+	mux.HandleFunc("POST /api/groups/{id}/disband", s.groupDisband)
 	mux.HandleFunc("GET /api/schedules", s.listSchedules)
 	mux.HandleFunc("POST /api/schedules", s.createSchedule)
 	mux.HandleFunc("GET /api/schedules/{id}", s.getSchedule)
@@ -904,6 +979,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tasks/{id}/constraints", s.addConstraint)            // 约束管理:新增约束(不通知 planner)
 	mux.HandleFunc("PATCH /api/tasks/{id}/constraints/{cid}", s.editConstraint)    // 约束管理:修改约束
 	mux.HandleFunc("DELETE /api/tasks/{id}/constraints/{cid}", s.deleteConstraint) // 约束管理:删除约束
+	mux.HandleFunc("GET /api/tasks/{id}/fence-authz", s.listFenceAuthz)            // Fence 越界授权:列出授权记录+激活状态
+	mux.HandleFunc("DELETE /api/tasks/{id}/fence-authz/{aid}", s.revokeFenceAuthz) // Fence 越界授权:撤销一条
 	mux.HandleFunc("POST /api/tasks/{id}/control", s.control)
 	mux.HandleFunc("PUT /api/tasks/{id}/llm", s.updateTaskLLMProfiles)
 	mux.HandleFunc("GET /api/tasks/{id}/llm/resolution", s.taskLLMResolutionHandler)
@@ -1029,6 +1106,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/settings/proxy-pool/{id}/activate", s.activateProxyPool)
 	mux.HandleFunc("POST /api/tasks/{id}/proxy/test", s.testTaskProxy)
 	mux.HandleFunc("GET /api/report", s.getReport)
+	mux.HandleFunc("GET /api/pentest-report", s.getPentestReport)
+	mux.HandleFunc("GET /api/insights", s.getInsights)
+	mux.HandleFunc("GET /api/search", s.getGlobalSearch)
+	mux.HandleFunc("GET /api/tasks/compare", s.getTasksCompare)
 	mux.HandleFunc("GET /api/chat/mentions", s.searchChatMentions)
 	mux.HandleFunc("POST /api/chat", s.chat)
 	mux.HandleFunc("POST /api/chat/upload", s.chatUpload) // 方式1 文件上传:落到会话/任务工作目录 uploads/
@@ -1085,6 +1166,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/mcp", s.pgSaveMCP)
 	mux.HandleFunc("DELETE /api/mcp/{id}", s.pgDeleteMCP)
 	mux.HandleFunc("GET /api/mcp/{id}/tools", s.pgMCPTools)
+	// MCP 模板库与连接测试（比 /api/mcp 更具体的路径，须在保存前可独立调用）
+	mux.HandleFunc("GET /api/mcp-templates", s.pgMCPTemplates)
+	mux.HandleFunc("POST /api/mcp-test", s.pgTestMCP)
+	// 任务清单导出（CSV/JSON；发现的导出在 /api/exploration/findings/export）
+	mux.HandleFunc("GET /api/export/tasks", s.exportTasks)
 	// MCP 服务端(ARTEX 对外暴露的 /mcp)：开关、访问令牌、调用审计
 	mux.HandleFunc("GET /api/mcp-server/settings", s.getMCPServerSettings)
 	mux.HandleFunc("PUT /api/mcp-server/settings", s.putMCPServerSettings)
@@ -1161,7 +1247,7 @@ func (s *Server) Handler() http.Handler {
 	// /api/* goes through CORS + JWT; everything else is served by the embedded
 	// frontend (no JWT required; the optional Basic Auth gate wraps both). With the
 	// no-embed build the webui handler just 404s (run `next dev` separately).
-	api := cors(s.requireAuth(mux))
+	api := recovery(cors(s.requireAuth(mux)))
 	root := http.NewServeMux()
 	root.Handle("/api/", api)
 	root.Handle("/", s.webuiHandler())
@@ -1171,7 +1257,7 @@ func (s *Server) Handler() http.Handler {
 	top := http.NewServeMux()
 	top.HandleFunc(mcpEndpointPath, s.serveMCP)
 	top.Handle("/", s.requireBasicAuth(root))
-	return top
+	return securityHeaders(top)
 }
 
 // --- handlers ---
@@ -1340,7 +1426,7 @@ func (s *Server) setActive(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID string `json:"id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
@@ -1366,7 +1452,7 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Action string `json:"action"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
@@ -1407,7 +1493,7 @@ func (s *Server) controlIntent(w http.ResponseWriter, r *http.Request) {
 		Reason string `json:"reason"` // cancel(删除)时必填:删除原因
 		Mode   string `json:"mode"`   // cancel 专用:soft(默认,假删除)| hard(真删除,级联移除独占子孙)
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
 		return
 	}
@@ -1563,7 +1649,7 @@ func (s *Server) setLLM(w http.ResponseWriter, r *http.Request) {
 		ThinkingType    string  `json:"thinking_type"`
 		ReasoningEffort string  `json:"reasoning_effort"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
@@ -1622,7 +1708,7 @@ func (s *Server) testLLM(w http.ResponseWriter, r *http.Request) {
 		Streaming        *bool  `json:"streaming"`          // 省略=流式，与保存 profile 时同一套默认
 		SessionHeaderKey string `json:"session_header_key"` // 非空=测试时也带该自定义会话头，值为一次性随机 session id
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
@@ -1659,7 +1745,7 @@ func (s *Server) testLLM(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		lat, reply, err := (jev.Config{BaseURL: baseURL, APIKey: apiKey, Model: model, Proxy: proxy}).TestConnection(testCtx)
 		if err != nil {
-			writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
+			writeJSON(w, 200, map[string]any{"ok": false, "error": sanitizeClientError(err.Error())})
 			return
 		}
 		writeJSON(w, 200, map[string]any{"ok": true, "latency_ms": lat.Milliseconds(), "model": model, "reply": truncateReply(reply)})
@@ -1706,7 +1792,7 @@ func (s *Server) testLLM(w http.ResponseWriter, r *http.Request) {
 	// 是跑起来之后的事。
 	lat, reply, err := agent.TestConnection(r.Context(), cfg)
 	if err != nil {
-		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
+		writeJSON(w, 200, map[string]any{"ok": false, "error": sanitizeClientError(err.Error())})
 		return
 	}
 	// 回传模型实际回复，让"测试通过"有据可查：看得见它确实说了话，而不只是 HTTP 200。
@@ -1760,7 +1846,7 @@ type taskCreateError struct {
 
 func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	var req createTaskReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
 		return
 	}
@@ -1897,7 +1983,7 @@ func (s *Server) updateTaskLLMProfiles(w http.ResponseWriter, r *http.Request) {
 		LLMProfileIDs      []int64 `json:"llm_profile_ids"`
 		ActiveLLMProfileID *int64  `json:"active_llm_profile_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
 		return
 	}
@@ -2194,7 +2280,7 @@ func (s *Server) taskScopeAdd(w http.ResponseWriter, r *http.Request) {
 		Value  string `json:"value"`
 		Reason string `json:"reason"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decode(r, &body); err != nil {
 		writeErr(w, 400, "invalid JSON")
 		return
 	}
@@ -2628,7 +2714,7 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 		Name      *string `json:"name"`
 		VulnClass *string `json:"vulnclass"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decode(r, &body); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
 		return
 	}
@@ -3595,7 +3681,7 @@ func (s *Server) deleteTrafficHosts(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Hosts []string `json:"hosts"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, "invalid body")
 		return
 	}
@@ -3754,6 +3840,10 @@ func (s *Server) settingsPayload() map[string]any {
 		// 实验功能:noa 模型驱动上下文压缩(默认关)。开启后平台接入的四类 agent 由 noa
 		// 接管上下文压缩,取代内置 compaction;每 run 读一次,对之后启动的 run 生效。
 		"noa_compaction": s.m.NoaCompactionEnabled(),
+		// 长期记忆：注入开关 + 每轮对话自动沉淀开关，供「记忆库」页展示/配置。
+		// vault 路径走 /api/obsidian/status。
+		"memory_enabled":      s.m.pg.GetBool(settingMemoryEnabled, true),
+		"memory_auto_extract": s.m.pg.GetBool(settingAutoMemory, true),
 		// 漏洞 IM 推送的全局项。渠道本身是独立资源，走 /api/notify/* 管理；
 		// 这里只放「作用于全部渠道」的三项。
 		"notify_enabled":             s.m.pg.GetBool(settingNotifyEnabled, true),
@@ -3847,16 +3937,29 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		ConstraintsInjectWorker  *bool `json:"constraints_inject_worker"`
 		// 实验功能:noa 上下文压缩开关(默认关);每 run 读,对之后启动的 run 生效,无需重建 agent。
 		NoaCompaction *bool `json:"noa_compaction"`
+		// 长期记忆注入开关（默认开）。wireMemoryHooks 每轮读，即时生效、无需重建 agent。
+		MemoryEnabled *bool `json:"memory_enabled"`
+		// 每轮对话结束后自动抽取并沉淀记忆（默认开）。maybeAutoMemorize 每轮读，即时生效。
+		AutoMemory *bool `json:"memory_auto_extract"`
 		// 漏洞 IM 推送的全局项。三者都由投递引擎每轮读一次，改完即时生效，
 		// 不需要重建 agent 或重启。
 		NotifyEnabled    *bool   `json:"notify_enabled"`
 		NotifyBaseURL    *string `json:"notify_public_base_url"`
 		NotifyDigestMins *int    `json:"notify_digest_interval_min"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	// Collect every direct setting write and commit them all in ONE transaction
+	// near the end of this handler. Previously each SetBool/SetSetting wrote
+	// immediately, so a later validation/persistence failure left earlier
+	// toggles persisted (e.g. a feature enabled but its secret still empty).
+	// Manager setters below (worker pools, web search, proxy pools, ...) own
+	// their own persistence + in-memory side effects and cannot join this
+	// transaction; they each validate their own input before writing and run
+	// before the commit, so a bad value still aborts before any direct write.
+	values := map[string]string{}
 	if req.EgressProbeURL != nil {
 		value := strings.TrimSpace(*req.EgressProbeURL)
 		if value != "" {
@@ -3870,16 +3973,10 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		req.EgressProbeURL = &value
 	}
 	if req.ConstraintsInjectPlanner != nil {
-		if err := s.m.pg.SetBool(settingConstraintsInjectPlanner, *req.ConstraintsInjectPlanner); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
+		values[settingConstraintsInjectPlanner] = strconv.FormatBool(*req.ConstraintsInjectPlanner)
 	}
 	if req.ConstraintsInjectWorker != nil {
-		if err := s.m.pg.SetBool(settingConstraintsInjectWorker, *req.ConstraintsInjectWorker); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
+		values[settingConstraintsInjectWorker] = strconv.FormatBool(*req.ConstraintsInjectWorker)
 	}
 	if req.NoaCompaction != nil {
 		// 每 run 读的解析器,切换即时对之后启动的 run 生效,无需 applyLLM 重建。
@@ -3888,12 +3985,17 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// 长期记忆注入开关:agent.MemoryBlock 每轮读,即时生效。
+	if req.MemoryEnabled != nil {
+		values[settingMemoryEnabled] = strconv.FormatBool(*req.MemoryEnabled)
+	}
+	// 自动沉淀开关:maybeAutoMemorize 每轮读,即时生效。
+	if req.AutoMemory != nil {
+		values[settingAutoMemory] = strconv.FormatBool(*req.AutoMemory)
+	}
 	// 推送全局项:投递引擎每轮重新读取,所以即时生效、无需重启。
 	if req.NotifyEnabled != nil {
-		if err := s.m.pg.SetBool(settingNotifyEnabled, *req.NotifyEnabled); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
+		values[settingNotifyEnabled] = strconv.FormatBool(*req.NotifyEnabled)
 	}
 	if req.NotifyBaseURL != nil {
 		// 统一裁掉尾部斜杠:回链拼接用的是 fmt.Sprintf("%s/function/..."),
@@ -3903,10 +4005,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, "回链地址需以 http:// 或 https:// 开头")
 			return
 		}
-		if err := s.m.pg.SetSetting(settingNotifyPublicBaseURL, base); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
+		values[settingNotifyPublicBaseURL] = base
 	}
 	if req.NotifyDigestMins != nil {
 		// 下限 1 分钟:更短的周期等于实时推送,那样应该直接把渠道改成 realtime 模式。
@@ -3914,10 +4013,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, "汇总周期需在 1 到 1440 分钟之间")
 			return
 		}
-		if err := s.m.pg.SetSetting(settingNotifyDigestMinutes, strconv.Itoa(*req.NotifyDigestMins)); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
+		values[settingNotifyDigestMinutes] = strconv.Itoa(*req.NotifyDigestMins)
 	}
 	// A non-empty pool list takes precedence when both fields are present and
 	// synchronizes workers to its total. An empty list clears pools; when workers
@@ -3967,10 +4063,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		go s.reconcileConcurrency()
 	}
 	if req.PythonInterp != nil {
-		if err := s.m.pg.SetSetting(settingPythonInterp, strings.TrimSpace(*req.PythonInterp)); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
+		values[settingPythonInterp] = strings.TrimSpace(*req.PythonInterp)
 	}
 	if req.LLMRecord != nil {
 		// 录制器每次调用读取该标志，切换即时生效，无需 applyLLM 重建。
@@ -4006,48 +4099,30 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.TaskAutoTitle != nil {
-		if err := s.m.pg.SetBool(db.SettingTaskAutoTitle, *req.TaskAutoTitle); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
+		values[db.SettingTaskAutoTitle] = strconv.FormatBool(*req.TaskAutoTitle)
 	}
 	if req.ChatAutoTitle != nil {
-		if err := s.m.pg.SetBool(db.SettingChatAutoTitle, *req.ChatAutoTitle); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
+		values[db.SettingChatAutoTitle] = strconv.FormatBool(*req.ChatAutoTitle)
 	}
 	if req.AgentTrafficBinding != nil {
-		if err := s.m.pg.SetBool(settingAgentTrafficBinding, *req.AgentTrafficBinding); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
+		values[settingAgentTrafficBinding] = strconv.FormatBool(*req.AgentTrafficBinding)
 	}
 	if req.BrowserScreenshot != nil {
 		if err := s.setReporterBrowserScreenshotVisibility(*req.BrowserScreenshot); err != nil {
 			writeErr(w, 500, err.Error())
 			return
 		}
-		if err := s.m.pg.SetBool(settingBrowserScreenshot, *req.BrowserScreenshot); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
+		values[settingBrowserScreenshot] = strconv.FormatBool(*req.BrowserScreenshot)
 		// The reporter's MCP visibility and prompt are assembled when agents are
 		// built. Rebuild immediately so the setting applies to the next run,
 		// rather than only after a later unrelated LLM/settings change.
 		changed = true
 	}
 	if req.ScreenshotTimestamp != nil {
-		if err := s.m.pg.SetBool(settingScreenshotTimestamp, *req.ScreenshotTimestamp); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
+		values[settingScreenshotTimestamp] = strconv.FormatBool(*req.ScreenshotTimestamp)
 	}
 	if req.OpsecEnabled != nil {
-		if err := s.m.pg.SetBool(settingOpsecEnabled, *req.OpsecEnabled); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
+		values[settingOpsecEnabled] = strconv.FormatBool(*req.OpsecEnabled)
 	}
 	if req.TrafficCapture != nil {
 		if err := s.m.SetTrafficEnabled(*req.TrafficCapture); err != nil {
@@ -4114,16 +4189,10 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.EgressProbeURL != nil {
-		if err := s.m.pg.SetSetting(settingEgressProbeURL, *req.EgressProbeURL); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
+		values[settingEgressProbeURL] = *req.EgressProbeURL
 	}
 	if req.ShowEgressIP != nil {
-		if err := s.m.pg.SetBool(settingShowEgressIP, *req.ShowEgressIP); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
+		values[settingShowEgressIP] = strconv.FormatBool(*req.ShowEgressIP)
 	}
 	if req.WebSearchEnabled != nil || req.WebSearchBackend != nil || req.BraveKey != nil || req.TavilyKey != nil || req.DeepSeekSearchKey != nil || req.WebSearchProxy != nil {
 		// Fill unspecified fields from current state so a partial PUT doesn't reset them.
@@ -4153,6 +4222,13 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		changed = true
+	}
+	// One transaction for all direct settings. All validation has already
+	// returned its error responses above; if the commit fails, none of these
+	// toggles are persisted.
+	if err := s.m.pg.SetSettingsAtomic(r.Context(), values); err != nil {
+		writeErr(w, 500, err.Error())
+		return
 	}
 	if changed {
 		// rebuild agents so the new proxy/tools/prompt/web-search take hold (only if LLM configured).
@@ -4216,7 +4292,7 @@ func (s *Server) testWebSearch(w http.ResponseWriter, r *http.Request) {
 		DeepSeekSearchKey string `json:"deepseek_search_api_key"`
 	}
 	// Empty body is fine — fall back entirely to the saved config below.
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+	if err := decode(r, &req); err != nil && err != io.EOF {
 		writeErr(w, 400, err.Error())
 		return
 	}
@@ -4249,7 +4325,7 @@ func (s *Server) testWebSearch(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		count, err := agent.DeepSeekSearchProbe(ctx, deepSeekKey, proxy, "DeepSeek company official website", 3)
 		if err != nil {
-			writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error(), "backend": backend})
+			writeJSON(w, 200, map[string]any{"ok": false, "error": sanitizeClientError(err.Error()), "backend": backend})
 			return
 		}
 		writeJSON(w, 200, map[string]any{"ok": count > 0, "count": count, "backend": backend})
@@ -4259,7 +4335,7 @@ func (s *Server) testWebSearch(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	results, err := actool.WebSearchProbe(ctx, cfg, probeQuery, 3)
 	if err != nil {
-		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error(), "backend": backend})
+		writeJSON(w, 200, map[string]any{"ok": false, "error": sanitizeClientError(err.Error()), "backend": backend})
 		return
 	}
 	if len(results) == 0 {
@@ -4327,7 +4403,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		Attachments []chatAttachment `json:"attachments,omitempty"` // 方式1 上传的文件(路径相对任务工作目录)
 		Seg         *int             `json:"seg,omitempty"`         // 目标主会话分段;缺省=最新段
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
@@ -4531,21 +4607,144 @@ func (s *Server) gc(w http.ResponseWriter, r *http.Request) {
 
 // --- utils ---
 
-func cors(next http.Handler) http.Handler {
+// securityHeaders 给所有响应补浏览器安全头。此前只有个别文件下载 handler 局部设了
+// nosniff，其余响应（含整个前端页面）裸奔——点击劫持（iframe 嵌进钓鱼页套操作）
+// 和 MIME 嗅探这两条路径都是通的。
+//
+// 这里刻意不加 Content-Security-Policy：白泽前端是 Next 导出的静态产物，页面里
+// 有内联脚本与内联样式，任何不含 unsafe-inline/unsafe-eval 的 CSP 都会直接把界面
+// 打断。要上 CSP 得先改前端构建，不属于这一轮的稳定性优化范围。
+//
+// 顺序上本中间件最外层，handler 内自己 Set 的同名头（例如 webui 的 Cache-Control、
+// 文件下载的 nosniff）会覆盖这里，所以不会误伤已有逻辑。
+func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		// Next dev and the Go SSE endpoint use different ports on the same
-		// loopback host. Allow the gate cookie only for that local pairing.
-		origin := r.Header.Get("Origin")
-		u, err := url.Parse(origin)
-		host, _, hostErr := net.SplitHostPort(r.Host)
-		if hostErr != nil {
-			host = r.Host
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		// DENY 而非 SAMEORIGIN：白泽没有任何合法嵌入场景，允许同源嵌入只会给
+		// 钓鱼页一个"把后台界面嵌进来骗点击"的口子。
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		// 显式关掉老浏览器的 XSS auditor：它只误报不拦截，留着反而干扰排查。
+		h.Set("X-XSS-Protection", "0")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// recovery 是全局 panic 恢复中间件：任何 /api handler panic 都不再裸崩连接，
+// 而是记下堆栈并按是否已写出响应返回 500 JSON。与 handler 内的局部 recover
+// （conversations/engine/groups 等）并存——外层兜底。SSE/Flusher 端点（日志流、
+// 更新流）通过 panickingWriter 转发 Flush，不被缓冲破坏。
+type panickingWriter struct {
+	http.ResponseWriter
+	wrote bool
+}
+
+func (w *panickingWriter) WriteHeader(code int) {
+	w.wrote = true
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *panickingWriter) Write(b []byte) (int, error) {
+	w.wrote = true
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *panickingWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func recovery(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pw := &panickingWriter{ResponseWriter: w}
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("[recovery] panic %s %s: %v\n%s", r.Method, r.URL.Path, rec, debug.Stack())
+				if !pw.wrote {
+					writeJSON(pw, http.StatusInternalServerError,
+						map[string]any{"error": "internal", "message": "服务器内部错误"})
+				}
+			}
+		}()
+		next.ServeHTTP(pw, r)
+	})
+}
+
+// corsAllowedOriginsEnv holds a comma-separated list of exact cross-origin
+// origins allowed to send credentials, e.g.
+// "https://console.example.com,https://admin.example.com". It is empty by
+// default: with no whitelist we serve the wildcard origin but NEVER pair it
+// with Access-Control-Allow-Credentials, so a random site can't ride the
+// admin's cookies. Same-origin embedded frontend traffic sends no Origin (or
+// its own), and CORS does not gate same-origin requests anyway, so this does
+// not break the bundled UI.
+const corsAllowedOriginsEnv = "ARTEX_CORS_ALLOWED_ORIGINS"
+
+func normalizeCORSOrigin(origin string) string {
+	u, err := url.Parse(strings.TrimSpace(origin))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+		return ""
+	}
+	// Drop any path/query: an origin is scheme://host[:port].
+	return u.Scheme + "://" + u.Host
+}
+
+func corsAllowedOrigins() map[string]struct{} {
+	allowed := map[string]struct{}{}
+	for _, part := range strings.Split(os.Getenv(corsAllowedOriginsEnv), ",") {
+		if o := normalizeCORSOrigin(part); o != "" {
+			allowed[o] = struct{}{}
 		}
-		if err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() == host &&
-			(host == "localhost" || host == "127.0.0.1" || host == "::1") {
+	}
+	return allowed
+}
+
+func isDevBuild() bool {
+	if BuildVersion == "dev" {
+		return true
+	}
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("ARTEX_DEV")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+// localSameHostOrigin keeps the legacy localhost reflection for the Next dev
+// server paired with the Go API on a different port. It is only applied in dev
+// builds and only for loopback hosts on the same hostname.
+func localSameHostOrigin(r *http.Request, origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	host, _, hostErr := net.SplitHostPort(r.Host)
+	if hostErr != nil {
+		host = r.Host
+	}
+	return u.Hostname() == host && (host == "localhost" || host == "127.0.0.1" || host == "::1")
+}
+
+func cors(next http.Handler) http.Handler {
+	allowed := corsAllowedOrigins()
+	dev := isDevBuild()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		trusted := false
+		if origin != "" {
+			if _, ok := allowed[normalizeCORSOrigin(origin)]; ok {
+				trusted = true
+			} else if dev && localSameHostOrigin(r, origin) {
+				trusted = true
+			}
+		}
+		if trusted {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			// A wildcard origin must never be paired with credentials.
+			w.Header().Del("Access-Control-Allow-Credentials")
 		}
 		w.Header().Add("Vary", "Origin")
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
@@ -4564,8 +4763,39 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// clientErrorInternalRe matches the distinctive shape of database/runtime internal
+// errors (pgx SQLSTATE, ERROR prefixes, constraint violations). Such text may carry
+// SQL fragments, schema names or host paths and must never reach the browser.
+var clientErrorInternalRe = regexp.MustCompile(`(?i)(SQLSTATE\s+[0-9A-Z]{5}|(^|[\s(])ERROR:|relation\s+"[^"]+"\s+does not exist|duplicate key value violates|violates (unique|foreign key|not null) constraint|syntax error at or near|password authentication failed)`)
+
+// clientErrorPathRe matches absolute filesystem paths (Windows drive letters and
+// common Unix system roots). Their presence in an error is a host-layout leak.
+var clientErrorPathRe = regexp.MustCompile(`[A-Za-z]:[\\/][^\s"'<>]*|/(?:etc|var|home|usr|tmp|root|opt|private|Users|Windows|Program Files)[^\s"'<>]*`)
+
+// sanitizeClientError strips sensitive internals from an error string before it is
+// sent to the browser. It is deliberately content-based rather than status-based:
+// business validation errors and i18n keys are plain text and pass through untouched,
+// while credential-bearing URLs, host paths and SQL errors are masked.
+//
+// The original message is logged server-side so diagnostics are not lost.
+func sanitizeClientError(msg string) string {
+	if msg == "" {
+		return msg
+	}
+	safe := maskSecrets(msg) // URL user:pass@ (proxy/DSN creds)
+	if clientErrorInternalRe.MatchString(safe) {
+		log.Printf("[api] internal error detail withheld from client: %s", safe)
+		return "服务器内部错误，请稍后重试"
+	}
+	if masked := clientErrorPathRe.ReplaceAllString(safe, "<path>"); masked != safe {
+		log.Printf("[api] host path masked in client error: %s", safe)
+		safe = masked
+	}
+	return safe
+}
+
 func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]any{"error": msg})
+	writeJSON(w, code, map[string]any{"error": sanitizeClientError(msg)})
 }
 
 func atoiDefault(s string, d int) int {

@@ -18,6 +18,11 @@ export const notifyMessages = {
   "notify.failed": ["失败", "Failed"],
   "notify.oldestBacklog": ["最久积压", "Oldest pending"],
   "notify.backlogWarning": ["推送可能卡住了", "Delivery may be stalled"],
+  "notify.engine": ["投递引擎", "Delivery engine"],
+  "notify.engineOk": ["运行中", "Running"],
+  "notify.engineDegraded": ["连续失败", "Failing"],
+  "notify.engineStale": ["无响应", "No response"],
+  "notify.engineUnknown": ["不可用", "Unavailable"],
   "notify.globalSettings": ["全局设置", "Global settings"],
   "notify.baseUrl": ["回链地址", "Console URL"],
   "notify.baseUrlHelp": [

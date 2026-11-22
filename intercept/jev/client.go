@@ -13,8 +13,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/intercept"
-	"github.com/Autumn-27/artex/llmhttp"
+	"github.com/Autumn-27/baize/intercept"
+	"github.com/Autumn-27/baize/llmhttp"
 )
 
 const (

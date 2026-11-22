@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/traffic"
+	"github.com/Autumn-27/baize/db"
+	"github.com/Autumn-27/baize/traffic"
 )
 
 // DTO/serialization layer: each handler emits EXACTLY the frontend's spec shapes
@@ -285,12 +285,28 @@ func goalDTOs(in []*db.Node) []GoalDTO {
 }
 
 // ConstraintDTO is one operation constraint (allow/deny) for the 总览「约束管理」UI.
+// Match/Pattern 非空表示结构化 Fence 规则（可机器判定）；均为空表示自由文本规则。
 type ConstraintDTO struct {
-	ID     string `json:"id"`
-	Kind   string `json:"kind"` // allow | deny
-	Text   string `json:"text"`
-	Origin string `json:"origin,omitempty"`
-	TS     string `json:"ts,omitempty"`
+	ID      string `json:"id"`
+	Kind    string `json:"kind"` // allow | deny
+	Text    string `json:"text"`
+	Match   string `json:"match,omitempty"`   // tool|command|host|path|port|all
+	Pattern string `json:"pattern,omitempty"` // glob
+	Origin  string `json:"origin,omitempty"`
+	TS      string `json:"ts,omitempty"`
+}
+
+// FenceAuthzDTO is one 越界授权 record for the 总览「越界授权」UI.
+type FenceAuthzDTO struct {
+	ID          string `json:"id"`
+	Surface     string `json:"surface"`
+	Tool        string `json:"tool,omitempty"`
+	GrantedBy   string `json:"granted_by,omitempty"`
+	Note        string `json:"note,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	HasExpiry   bool   `json:"has_expiry"`
+	ExpiresAt   string `json:"expires_at,omitempty"`
+	FenceActive bool   `json:"fence_active"` // 任务当前是否有激活的允许清单
 }
 
 func taskNodeDTOs(in []*db.Node) []TaskNodeDTO {

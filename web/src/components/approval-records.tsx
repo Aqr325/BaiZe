@@ -534,10 +534,10 @@ export function ApprovalDetail({
       noSnapshotHint={ui("screen.8197d17084a3a9")}
       emptyDescription={ui("screen.80b1b3f5232e2e")}
       suggestions={[
-        { label: ui("chatUI.approval.scriptPurpose"), question: "此脚本的作用是什么？" },
-        { label: ui("chatUI.approval.scriptChanges"), question: "脚本会修改哪些文件或数据？" },
-        { label: ui("chatUI.approval.decisionReason"), question: "为什么这次被放行或拦截？" },
-        { label: ui("chatUI.approval.uncertainBehavior"), question: "脚本中有哪些未确定行为？" },
+        { label: ui("chatUI.approval.scriptPurpose"), question: ui("chatUI.approval.scriptPurpose") },
+        { label: ui("chatUI.approval.scriptChanges"), question: ui("chatUI.approval.scriptChanges") },
+        { label: ui("chatUI.approval.decisionReason"), question: ui("chatUI.approval.decisionReason") },
+        { label: ui("chatUI.approval.uncertainBehavior"), question: ui("chatUI.approval.uncertainBehavior") },
       ]}
       className={cn(side.open ? "min-h-[460px]" : "min-h-0")}
       mainClassName="overflow-visible"

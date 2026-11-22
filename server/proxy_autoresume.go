@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
+	"github.com/Autumn-27/baize/agent"
 )
 
 const (
@@ -246,9 +246,9 @@ func (s *Server) runProxyReconnect(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.proxyReconnectTick()
+			keepalive("proxy-reconnect", s.proxyReconnectTick)
 		case <-s.proxyReconnect.wake:
-			s.proxyReconnectTick()
+			keepalive("proxy-reconnect", s.proxyReconnectTick)
 		}
 	}
 }

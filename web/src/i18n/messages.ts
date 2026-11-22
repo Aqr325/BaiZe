@@ -1,6 +1,7 @@
 import { chatUIMessages } from "./chat-ui-messages";
 import { errorMessages } from "./error-messages";
 import { inlineEditorMessages } from "./inline-editor-messages";
+import { memoryMessages } from "./memory-messages";
 import { notifyMessages } from "./notify-messages";
 import { overviewMessages } from "./overview-messages";
 import { scheduleMessages } from "./schedule-messages";
@@ -17,12 +18,27 @@ export const messages = {
   ...taskMessages,
   ...notifyMessages,
   ...inlineEditorMessages,
+  ...memoryMessages,
   ...scheduleMessages,
   ...chatUIMessages,
   ...errorMessages,
   ...overviewMessages,
   ...settingsMessages,
   ...settingsRuntimeMessages,
+  // Skills editor placeholder and finding report section headings.
+  "skills.installationPlaceholder": [
+    "## 执行方法\n\n1. 先探测错误\n2. 区分盲注类型\n\n脚本放 scripts/ 目录。",
+    "## Usage\n\n1. Probe for errors first\n2. Identify the blind-injection type\n\nPut helper scripts in the scripts/ directory.",
+  ],
+  "findingReport.section.reproduction": ["复现步骤", "Reproduction steps"],
+  "findingReport.section.testProcess": ["测试过程", "Test process"],
+  "findingReport.section.reproductionProcess": ["复现过程", "Reproduction process"],
+  "findingReport.section.overview": ["概述", "Overview"],
+  "findingReport.section.impact": ["影响与危害", "Impact and harm"],
+  "findingReport.section.affectedScope": ["受影响范围", "Affected scope"],
+  "findingReport.section.outcome": ["最终结果", "Final result"],
+  "findingReport.section.rootCause": ["根因分析", "Root cause"],
+  "findingReport.section.remediation": ["修复建议", "Remediation"],
   "common.cancel": ["取消", "Cancel"],
   "common.retry": ["重试", "Retry"],
   "common.close": ["关闭", "Close"],
@@ -33,7 +49,7 @@ export const messages = {
   "common.previous": ["上一页", "Previous page"],
   "common.next": ["下一页", "Next page"],
   "common.version": ["版本", "Version"],
-  "meta.title": ["ARTEX — 自主渗透测试控制台", "ARTEX — Autonomous Pentesting Console"],
+  "meta.title": ["白泽 — 自主渗透测试控制台", "BaiZe — Autonomous Pentesting Console"],
   "meta.description": ["LLM 驱动的自主渗透测试系统控制台", "An LLM-powered autonomous penetration testing console"],
   "language.label": ["语言", "Language"],
   "language.change": ["切换语言", "Change language"],
@@ -49,6 +65,11 @@ export const messages = {
   "nav.commands": ["工具执行", "Tool executions"],
   "nav.llm-records": ["LLM 录制", "LLM recordings"],
   "nav.assets": ["资产", "Assets"],
+  "nav.reports": ["渗透报告", "Pentest reports"],
+  "nav.subagents": ["子代理", "Subagents"],
+  "nav.groups": ["群聊", "Group chat"],
+  "nav.insights": ["数据洞察", "Insights"],
+  "nav.compare": ["任务对比", "Task comparison"],
   "nav.sync": ["资产同步", "Asset sync"],
   "nav.workspace": ["工作空间", "Workspace"],
   "nav.llm": ["LLM", "LLM"],
@@ -62,7 +83,7 @@ export const messages = {
   "nav.approvals": ["审批记录", "Approval history"],
   "nav.logs": ["日志", "Logs"],
   "nav.settings": ["系统配置", "Settings"],
-  "search.placeholder": ["搜索页面与功能…", "Search pages and features…"],
+  "search.placeholder": ["搜索页面、任务、发现…", "Search pages, tasks, findings…"],
   "search.empty": ["没有匹配结果", "No results found"],
   "account.changePassword": ["修改密码", "Change password"],
   "account.logout": ["退出登录", "Sign out"],
@@ -86,8 +107,8 @@ export const messages = {
   "auth.checking": ["正在检查登录状态…", "Checking sign-in status…"],
   "auth.login": ["登录", "Sign in"],
   "auth.welcome": [
-    "欢迎回来，请输入密码以继续使用 ARTEX",
-    "Welcome back. Enter your password to continue using ARTEX.",
+    "欢迎回来，请输入密码以继续使用 白泽",
+    "Welcome back. Enter your password to continue using BaiZe.",
   ],
   "auth.username": ["用户名", "Username"],
   "auth.password": ["密码", "Password"],
@@ -105,8 +126,8 @@ export const messages = {
     "The backend or database is temporarily unavailable. Setup is disabled to protect any existing password. Restore the service and try again.",
   ],
   "auth.setupWelcome": [
-    "首次使用 ARTEX，请为账户设置一个登录密码（至少 8 位）",
-    "Welcome to ARTEX. Set a sign-in password with at least 8 characters.",
+    "首次使用 白泽，请为账户设置一个登录密码（至少 8 位）",
+    "Welcome to BaiZe. Set a sign-in password with at least 8 characters.",
   ],
   "auth.minPlaceholder": ["至少 8 位", "At least 8 characters"],
   "auth.confirmPassword": ["确认密码", "Confirm password"],

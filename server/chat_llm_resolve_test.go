@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/baize/db"
 )
 
 // TestChatUnavailableReasonDistinguishesStates pins the operator-facing message
@@ -66,7 +66,11 @@ func TestResolveChatAgentHonoursConversationProfile(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer m.Close()
+	// Close must run AFTER the profile cleanup below: t.Cleanup is LIFO, so an
+	// early registration here executes last. A plain defer would close the DB
+	// before the cleanup, and the failed DeleteProfile would silently leave
+	// "conv-pick" behind, breaking the next run with a unique-key violation.
+	t.Cleanup(func() { m.Close() })
 	td := t.TempDir()
 	s := New(context.Background(), m, td, td, td)
 
@@ -81,7 +85,13 @@ func TestResolveChatAgentHonoursConversationProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = m.pg.DeleteProfile(id) })
+	// resolveChatAgent may insert a conversation row referencing the profile;
+	// drop it first or DeleteProfile fails on the reference and leaves the name
+	// occupied for the next run.
+	t.Cleanup(func() {
+		_, _ = m.pg.Exec(`DELETE FROM conversations WHERE llm_profile_id=$1`, id)
+		_ = m.pg.DeleteProfile(id)
+	})
 
 	// A conversation that pinned this profile resolves a chat agent despite the
 	// nil global fallback; without the fix the send precheck rejected it outright.

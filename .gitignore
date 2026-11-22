@@ -60,3 +60,33 @@ Thumbs.db
 /bench/
 /Dockerfile.bench
 /Dockerfile.bench.v2
+
+# ============================================================
+# 本地产物（绝不推送）— 2026-11-22 开源推送前强化
+# ============================================================
+
+# 编译产物二进制（*.go 是源码，*.exe 是本机构建）
+*.exe
+
+# 运行/部署日志（任意位置）
+*.log
+
+# 本地 Go 工具链（含 ~79MB 安装包）
+/.toolchain/
+
+# 白泽部署标记（空文件）
+/BAIZE
+
+# 本机 Windows 服务部署/重启脚本（引用本地 .exe/.log，非项目源码）
+/deploy-baize.bat
+/fix-deploy-baize.bat
+/restart-baize.bat
+/restart-baize.ps1
+/start-baize-admin.bat
+
+# 内嵌前端构建产物备份
+/server/webui/dist.bak-*/
+
+# 场景调度器运行日志
+/server/scenario_decisions.log
+

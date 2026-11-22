@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/baize/db"
 )
 
 // companyScopeInputs accepts both the new [{kind,value}] contract and the
@@ -20,7 +20,7 @@ const maxCompanyMutationBodyBytes = 2 << 20
 
 func decodeCompanyMutationRequest(w http.ResponseWriter, r *http.Request, value any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxCompanyMutationBodyBytes)
-	if err := json.NewDecoder(r.Body).Decode(value); err != nil {
+	if err := decode(r, value); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "请求正文过大")
@@ -260,7 +260,7 @@ func (s *Server) deleteCompany(w http.ResponseWriter, r *http.Request) {
 	}
 	// The body is optional. Only an actual empty body is ignored; malformed or
 	// trailing JSON is a client error.
-	decoder := json.NewDecoder(r.Body)
+	decoder := json.NewDecoder(io.LimitReader(r.Body, maxDefaultRequestBodyBytes+1))
 	if err := decoder.Decode(&req); err != nil {
 		if !errors.Is(err, io.EOF) {
 			writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -426,7 +426,7 @@ func (s *Server) deleteAssets(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		IDs []int64 `json:"ids"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, "invalid JSON: "+err.Error())
 		return
 	}
@@ -488,7 +488,7 @@ func (s *Server) insertAssets(w http.ResponseWriter, r *http.Request) {
 			Params []map[string]any `json:"params"`
 		} `json:"assets"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, "invalid JSON: "+err.Error())
 		return
 	}
@@ -538,7 +538,7 @@ func (s *Server) insertAssets(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if err != nil {
-			errs = append(errs, errEntry{Index: i, Error: err.Error()})
+			errs = append(errs, errEntry{Index: i, Error: sanitizeClientError(err.Error())})
 			continue
 		}
 		if req.TaskID > 0 {

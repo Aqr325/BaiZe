@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/command";
 import type { NavMainItem } from "@/navigation/sidebar/sidebar-items";
 import { getSidebarItems } from "@/navigation/sidebar/sidebar-items";
+import { api } from "@/lib/api";
 
 type SearchItem = {
   id: string;
@@ -29,6 +30,23 @@ type SearchItem = {
   icon?: NavMainItem["icon"];
   disabled?: boolean;
   newTab?: boolean;
+  subtitle?: string;
+};
+
+// 全局数据搜索结果（任务/发现/对话/资产），key 用于按数据指纹合并去重。
+type DataResult = {
+  kind: string;
+  id: string;
+  title: string;
+  subtitle?: string;
+  url: string;
+};
+
+const KIND_GROUP_KEY: Record<string, string> = {
+  task: "search.groupTasks",
+  finding: "search.groupFindings",
+  conversation: "search.groupConversations",
+  asset: "search.groupAssets",
 };
 
 function groupBy(items: SearchItem[]) {
@@ -52,7 +70,41 @@ export function SearchDialog() {
     .filter((item) => !item.disabled && !item.url.includes("coming-soon"));
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
+  const [dataResults, setDataResults] = React.useState<DataResult[]>([]);
+  const [dataLoading, setDataLoading] = React.useState(false);
   const router = useRouter();
+
+  // 输入非空时对后端做全局数据搜索（防抖 300ms；导航项过滤仍走前端）。
+  React.useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setDataResults([]);
+      setDataLoading(false);
+      return;
+    }
+    setDataLoading(true);
+    const timer = setTimeout(() => {
+      api
+        .globalSearch(q)
+        .then((r) => setDataResults(r.items ?? []))
+        .catch(() => setDataResults([]))
+        .finally(() => setDataLoading(false));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  // 数据结果 → 导航同构条目，分组标签按 kind 取 i18n。
+  const dataItems: SearchItem[] = React.useMemo(
+    () =>
+      dataResults.map((r) => ({
+        id: `${r.kind}-${r.id}`,
+        group: t(KIND_GROUP_KEY[r.kind] ?? "common.other"),
+        label: r.title || r.url,
+        url: r.url,
+        subtitle: r.subtitle,
+      })),
+    [dataResults, t],
+  );
 
   React.useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -89,12 +141,17 @@ export function SearchDialog() {
             <CommandItem
               disabled={item.disabled}
               key={`${group}-${item.id}`}
-              value={`${item.group} ${item.label}`}
+              value={`${item.group} ${item.label} ${item.subtitle ?? ""}`}
               onSelect={() => handleSelect(item)}
             >
               <span className="flex min-w-0 items-center gap-2">
                 {item.icon && <item.icon />}
-                <span className="truncate">{item.label}</span>
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate">{item.label}</span>
+                  {item.subtitle ? (
+                    <span className="text-muted-foreground truncate text-xs">{item.subtitle}</span>
+                  ) : null}
+                </span>
               </span>
             </CommandItem>
           ))}
@@ -119,8 +176,11 @@ export function SearchDialog() {
         <Command>
           <CommandInput placeholder={t("search.placeholder")} value={query} onValueChange={setQuery} />
           <CommandList>
-            <CommandEmpty>{t("search.empty")}</CommandEmpty>
+            <CommandEmpty>
+              {dataLoading ? t("search.searching") : t("search.empty")}
+            </CommandEmpty>
             {renderGroups(searchItems)}
+            {dataItems.length > 0 ? renderGroups(dataItems) : null}
           </CommandList>
         </Command>
       </CommandDialog>

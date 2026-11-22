@@ -8,12 +8,20 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
+
+// ResponseHeaderTimeout bounds the wait for an LLM endpoint's response headers.
+// A provider that accepts the connection and then stalls must not pin a worker
+// goroutine, DB connection and rate-limit slot forever. Streaming bodies are
+// deliberately NOT bounded here: they may legitimately run for minutes.
+const ResponseHeaderTimeout = 60 * time.Second
 
 // NewClient builds an HTTP client for an LLM endpoint. Supported proxies are
 // http, https, and socks5, matching the profile configuration contract.
 func NewClient(rawProxy string) (*http.Client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = ResponseHeaderTimeout
 	rawProxy = strings.TrimSpace(rawProxy)
 	if rawProxy == "" {
 		transport.Proxy = nil

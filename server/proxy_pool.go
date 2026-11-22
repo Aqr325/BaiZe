@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/traffic"
+	"github.com/Autumn-27/baize/traffic"
 )
 
 const (
@@ -506,7 +506,7 @@ func (s *Server) runProxyPoolSupervisor(ctx context.Context) {
 			}
 			return
 		case <-t.C:
-			s.proxyPoolTick()
+			keepalive("proxy-pool", func() { s.proxyPoolTick() })
 		case <-s.proxyPoolWake:
 			if !t.Stop() {
 				select {
@@ -514,7 +514,7 @@ func (s *Server) runProxyPoolSupervisor(ctx context.Context) {
 				default:
 				}
 			}
-			s.proxyPoolTick()
+			keepalive("proxy-pool", func() { s.proxyPoolTick() })
 		}
 	}
 }

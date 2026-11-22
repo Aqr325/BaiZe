@@ -289,7 +289,7 @@ export default function NotifyPage() {
       </div>
 
       {meta && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <StatTile
             label={translate("notify.channels")}
             value={`${meta.stats.channels_on} / ${meta.stats.channels}`}
@@ -308,6 +308,14 @@ export default function NotifyPage() {
             // 积压年龄比积压条数有用得多：积压 3 条可以是从 3 秒到 3 小时。
             hint={meta.stats.backlog_age_ms > 5 * 60_000 ? translate("notify.backlogWarning") : undefined}
             tone={meta.stats.backlog_age_ms > 5 * 60_000 ? "red" : undefined}
+          />
+          <StatTile
+            label={translate("notify.engine")}
+            value={translate(`notify.engine${engineStateLabel(meta.engine.state)}`)}
+            // 引擎健康反映 dispatcher 是否还在轮询——DB 指标全绿但引擎卡死时，
+            // 这里是唯一能看出问题的地方。有 last_error 时一并展示便于定位。
+            hint={meta.engine.last_error || undefined}
+            tone={meta.engine.state === "ok" ? undefined : "red"}
           />
         </div>
       )}
@@ -607,4 +615,19 @@ export default function NotifyPage() {
       </Sheet>
     </div>
   );
+}
+
+// engineStateLabel 把后端 state 映射到 i18n key 后缀。
+// 未知取值一律回落到 Unknown，避免后端新增状态时前端渲染出裸 key。
+function engineStateLabel(state: string): string {
+  switch (state) {
+    case "ok":
+      return "Ok";
+    case "degraded":
+      return "Degraded";
+    case "stale":
+      return "Stale";
+    default:
+      return "Unknown";
+  }
 }

@@ -136,9 +136,27 @@ func (s *Server) requireBasicAuth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		username, password, ok := r.BasicAuth()
-		if !ok || len(password) > maxPasswordBytes || username != cfg.Username ||
+		username, password, presented := r.BasicAuth()
+		if presented {
+			// 提交了凭据才算一次真实的认证尝试，先过速率限制闸。不带凭据的请求
+			// （首次打开页面的浏览器）不计数：一次页面加载会并发打出十几个 API
+			// 请求，若都计入窗口，正常用户会被自己的一次刷新锁在门外。
+			ip := authClientIP(r)
+			if lim := s.authLimiterOrDummy(); lim != nil {
+				if allowed, retry := lim.attempt(ip); !allowed {
+					lim.maybeWarn(ip, "basic-auth")
+					denyRateLimited(w, retry)
+					return
+				}
+			}
+		}
+		if !presented || len(password) > maxPasswordBytes || username != cfg.Username ||
 			bcrypt.CompareHashAndPassword([]byte(cfg.PasswordHash), []byte(password)) != nil {
+			if presented {
+				if lim := s.authLimiterOrDummy(); lim != nil {
+					lim.recordFailure(authClientIP(r))
+				}
+			}
 			// Background requests use Bearer auth. Challenging them with Basic
 			// can trap the browser in repeated native dialogs. Let the client
 			// reload the current page once to renew only the outer session.

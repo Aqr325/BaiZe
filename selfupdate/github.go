@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/internal/httpidentity"
+	"github.com/Autumn-27/baize/internal/httpidentity"
 )
 
 // Repo 是发布源。写死而不是做成配置项：更新源可配等于给任何能改配置的人一条

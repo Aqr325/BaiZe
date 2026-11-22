@@ -120,15 +120,47 @@ export function truncateResponse(response: RepeaterSendResponse, limit = MAX_RES
   };
 }
 
+// Replay drafts often carry credentials. Redact sensitive header values before
+// anything is persisted (serialization works on a copy, so live state is intact).
+// The header names below cover Authorization/Cookie plus common token headers.
+const SENSITIVE_HEADER = /^(?:authorization|proxy-authorization|cookie|set-cookie|x-[\w-]*token[\w-]*|x-api-key|x-csrf-token)$/i;
+const REDACTED = "[REDACTED]";
+
+function redactHeaderLine(line: string): string {
+  const colon = line.indexOf(":");
+  if (colon < 0) return line;
+  const name = line.slice(0, colon).trim();
+  return SENSITIVE_HEADER.test(name) ? `${line.slice(0, colon + 1)} ${REDACTED}` : line;
+}
+
+export function redactHeadersText(text: string): string {
+  return text.split(/\r?\n/).map(redactHeaderLine).join("\n");
+}
+
+function redactResponseHeaders(headers: Record<string, string[]>): Record<string, string[]> {
+  return Object.fromEntries(
+    Object.entries(headers).map(([name, values]) => [name, SENSITIVE_HEADER.test(name) ? [REDACTED] : values]),
+  );
+}
+
 export function serializeWorkspace(workspace: RepeaterWorkspace, maxBytes = MAX_STORAGE_BYTES): string {
   const saved: RepeaterWorkspace = {
     ...workspace,
     tabs: workspace.tabs.map((tab) => ({
       ...tab,
-      response: tab.response ? truncateResponse(tab.response) : null,
+      headersText: redactHeadersText(tab.headersText),
+      rawRequest: tab.rawRequest === undefined ? undefined : redactHeadersText(tab.rawRequest),
+      response: tab.response
+        ? { ...truncateResponse(tab.response), headers: redactResponseHeaders(tab.response.headers) }
+        : null,
       history: tab.history
         .slice(0, MAX_HISTORY)
-        .map((entry) => ({ ...entry, response: truncateResponse(entry.response) })),
+        .map((entry) => ({
+          ...entry,
+          headersText: redactHeadersText(entry.headersText),
+          rawRequest: entry.rawRequest === undefined ? undefined : redactHeadersText(entry.rawRequest),
+          response: { ...truncateResponse(entry.response), headers: redactResponseHeaders(entry.response.headers) },
+        })),
     })),
   };
   let json = JSON.stringify(saved);

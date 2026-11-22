@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
+	"github.com/Autumn-27/baize/agent"
+	"github.com/Autumn-27/baize/db"
 )
 
 const maxBatchControlIDs = 100
@@ -269,7 +269,7 @@ func (s *Server) applyIntentControl(ctx context.Context, t *Task, iid int64, act
 			if err != nil {
 				return out, err
 			}
-			s.cancelWorkerSide(t.ID, t.ExpID, iid)
+			s.side.cancelWorker(t.ID, t.ExpID, iid)
 			t.NotifyCancelled(iid, summary, reason)
 			out.Deleted = &cleanup
 			out.State = "" // 节点已删除,前端据 Deleted 从列表移除
@@ -277,7 +277,7 @@ func (s *Server) applyIntentControl(ctx context.Context, t *Task, iid int64, act
 			if _, err := t.Store.SoftDeleteIntent(iid, reason); err != nil {
 				return out, err
 			}
-			s.cancelWorkerSide(t.ID, t.ExpID, iid)
+			s.side.cancelWorker(t.ID, t.ExpID, iid)
 			t.NotifyCancelled(iid, summary, reason)
 			out.State = db.StateIntentDeleted
 		}
@@ -293,7 +293,7 @@ func (s *Server) controlTasksBatch(w http.ResponseWriter, r *http.Request) {
 		TaskIDs []string `json:"task_ids"`
 		Action  string   `json:"action"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
 		return
 	}

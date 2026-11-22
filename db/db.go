@@ -1,4 +1,4 @@
-// Package db is the PostgreSQL data source for ARTEX (取代旧 graph 单文件 SQLite)。
+// Package db is the PostgreSQL data source for BaiZe (取代旧 graph 单文件 SQLite)。
 // 它打开连接、应用 schema、并 seed 内置 agent 与变量目录。
 package db
 
@@ -6,13 +6,14 @@ import (
 	"context"
 	"database/sql"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/config"
+	"github.com/Autumn-27/baize/config"
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib" // pgx database/sql driver ("pgx")
 )
@@ -266,6 +267,13 @@ ON CONFLICT (name) DO NOTHING`,
 		`["@playwright/mcp","--headless"]`); err != nil {
 		return fmt.Errorf("seed browser mcp: %w", err)
 	}
+	// Seed Pojun (chu0119/Pojun) 的全部 MCP 预设为实际服务器条目——直接出现在 MCP
+	// 界面列表（不经过模板库）。stdio 统一 cmd /c 前缀（Windows 下 npx/uvx/python3
+	// 是 .cmd/.bat 包装脚本，Go exec 直接跑会失败），默认 disabled，用户按需启用，
+	// 避免服务启动即拉取外部依赖。ON CONFLICT DO NOTHING 防覆盖用户编辑。
+	if err := d.seedPojunMCPServers(); err != nil {
+		return fmt.Errorf("seed pojun mcp servers: %w", err)
+	}
 	// NOTE: the placeholder ScopeSentry data-source MCP (empty URL + empty X-API-Key,
 	// disabled) is seeded directly in schema.sql §F so a raw `psql < schema.sql` init
 	// also gets it. schema.sql is Exec'd on every startup, so it stays idempotent.
@@ -283,6 +291,48 @@ ON CONFLICT (name) DO NOTHING`,
 	}
 	if err := d.seedDefaultAssetInterceptRules(); err != nil {
 		return fmt.Errorf("seed asset intercept rules: %w", err)
+	}
+	return nil
+}
+
+// seedPojunMCPServers 预置 Pojun（chu0119/Pojun）的全部 MCP 预设为实际服务器条目，
+// 直接出现在 MCP 界面列表（不经过模板库）。stdio 统一 cmd /c 前缀（Windows 下
+// npx/uvx/python3 是 .cmd/.bat 包装脚本，Go exec 直接跑会失败）；fofa/hexstrike
+// 依赖 Pojun 私有 mcp-servers/ 子模块（需自备脚本，env 留空由用户填 FOFA_* 等）。
+// 默认 disabled，用户按需启用。Insert-if-absent（ON CONFLICT DO NOTHING），
+// 与 browser-MCP / intercept-rule 的 seed 策略一致，永不覆盖用户编辑。
+func (d *DB) seedPojunMCPServers() error {
+	type mcpSeed struct {
+		name      string
+		transport string
+		command   string
+		args      []string
+		url       string
+	}
+	seeds := []mcpSeed{
+		{"playwright", "stdio", "cmd", []string{"/c", "npx", "-y", "@playwright/mcp@latest", "--headless", "--no-sandbox"}, ""},
+		{"chrome-devtools", "stdio", "cmd", []string{"/c", "npx", "-y", "chrome-devtools-mcp@latest", "--headless"}, ""},
+		{"burp", "sse", "", []string{}, "http://127.0.0.1:9876/sse"},
+		{"fetch", "stdio", "cmd", []string{"/c", "uvx", "mcp-server-fetch"}, ""},
+		{"sequential-thinking", "stdio", "cmd", []string{"/c", "npx", "-y", "@modelcontextprotocol/server-sequential-thinking"}, ""},
+		{"memory", "stdio", "cmd", []string{"/c", "npx", "-y", "@modelcontextprotocol/server-memory"}, ""},
+		{"filesystem", "stdio", "cmd", []string{"/c", "npx", "-y", "@modelcontextprotocol/server-filesystem", "D:\\artex-workspace"}, ""},
+		{"hexstrike", "stdio", "cmd", []string{"/c", "python3", "mcp-servers/hexstrike-ai/hexstrike_mcp.py", "--server", "http://127.0.0.1:5000"}, ""},
+		{"fofa", "stdio", "cmd", []string{"/c", "uv", "--directory", "mcp-servers/fofa", "run", "python", "fofa.py"}, ""},
+		{"context7", "stdio", "cmd", []string{"/c", "npx", "-y", "@upstash/context7-mcp"}, ""},
+	}
+	for _, s := range seeds {
+		argsJSON, err := json.Marshal(s.args)
+		if err != nil {
+			return fmt.Errorf("seed pojun mcp %q: marshal args: %w", s.name, err)
+		}
+		if _, err := d.Exec(`
+INSERT INTO mcp_servers(name, transport, command, args, env, url, enabled, insecure)
+VALUES ($1, $2, NULLIF($3,''), $4, '{}', NULLIF($5,''), false, false)
+ON CONFLICT (name) DO NOTHING`,
+			s.name, s.transport, s.command, string(argsJSON), s.url); err != nil {
+			return fmt.Errorf("seed pojun mcp %q: %w", s.name, err)
+		}
 	}
 	return nil
 }

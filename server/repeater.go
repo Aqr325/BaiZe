@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Autumn-27/artex/internal/httpidentity"
+	"github.com/Autumn-27/baize/internal/httpidentity"
 )
 
 const (
