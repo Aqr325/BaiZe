@@ -8179,6 +8179,18 @@
   "漏洞复测",
   "Finding retest"
  ],
+ "builtinAgent.batch_reporter.name": [
+  "批量汇总报告",
+  "Batch report"
+ ],
+ "builtinAgent.asset_recon.name": [
+  "资产测绘",
+  "Asset recon"
+ ],
+ "builtinAgent.redteam.name": [
+  "红队/横向",
+  "Red team / lateral"
+ ],
  "screen.7cb488ec57048e": [
   "把渗透任务目标拆解成若干独立、可验证的子目标。",
   "Split test goals into independent, verifiable subgoals."

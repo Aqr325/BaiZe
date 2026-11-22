@@ -315,6 +315,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		if err := s.seedFindingRetester(); err != nil {
 			log.Printf("[retester] seed: %v", err)
 		}
+		s.seedEnhancementAgents() // 预置「批量汇总报告/资产测绘/红队横向」三个增强角色(UI 可编辑/删除)
 		go s.evidenceStore().RunGC(s.ctx)
 		s.seedPythonInterpreter() // 自定义脚本工具:开机检测 python 解释器入库(仅空时)
 		// Calendar scheduler starts after persisted tasks are restored.

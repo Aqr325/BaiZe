@@ -12,6 +12,9 @@ const shippedNames: Record<string, string[]> = {
   asset_mapper: ["资产梳理"],
   pentest: ["渗透测试"],
   retester: ["漏洞复测"],
+  batch_reporter: ["批量汇总报告"],
+  asset_recon: ["资产测绘"],
+  redteam: ["红队/横向"],
 };
 
 export function agentDisplayName(agent: { key: string; name: string }, ui: (key: string) => string): string {
