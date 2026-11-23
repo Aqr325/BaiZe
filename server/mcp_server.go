@@ -205,7 +205,7 @@ func (s *Server) serveMCP(w http.ResponseWriter, r *http.Request) {
 		writeMCPResult(w, req.ID, map[string]any{
 			"protocolVersion": version,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-			"serverInfo":      map[string]any{"name": "artex", "title": "ARTEX", "version": BuildVersion},
+			"serverInfo":      map[string]any{"name": "baize", "title": "白泽", "version": BuildVersion},
 			"instructions":    mcpInstructions,
 		})
 	case "ping":

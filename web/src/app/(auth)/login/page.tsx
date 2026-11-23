@@ -19,6 +19,7 @@ export default function LoginPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const [password, setPassword] = useState("");
+  const [username, setUsername] = useState("ARTEX");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -59,6 +60,13 @@ export default function LoginPage() {
       })
       .catch(() => setError("auth.backendUnavailable"))
       .finally(() => setChecking(false));
+    // 登录用户名可从后端配置覆盖（默认 ARTEX），登录前读取用于展示与提交。
+    api
+      .authConfig()
+      .then((cfg) => setUsername(cfg.username))
+      .catch(() => {
+        /* 读取失败保留默认 ARTEX，登录接口仍会校验 */
+      });
   }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -70,7 +78,7 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     try {
-      const { token } = await api.login("ARTEX", password);
+      const { token } = await api.login(username, password);
       auth.setToken(token);
       window.location.replace("/function/tasks");
     } catch {
@@ -112,7 +120,7 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="username">{t("auth.username")}</Label>
-              <Input id="username" value="ARTEX" readOnly className="bg-muted text-muted-foreground" />
+              <Input id="username" value={username} readOnly className="bg-muted text-muted-foreground" />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="password">{t("auth.password")}</Label>

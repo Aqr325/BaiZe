@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -102,6 +103,18 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 					if m.Name == browserMCPName && isBrowserScreenshotTool(t.Name()) &&
 						(agentKey != "reporter" || !pg.GetBool(settingBrowserScreenshot, false)) {
 						continue
+					}
+					// --- 工具描述 hash pinning（B 类防御 · 防 Rug Pull/工具投毒）---
+					// 第三方 MCP 工具描述进入模型上下文前，计算 sha256 并与上次基线比对。
+					// 首次连接 → 存基线；后续变更 → 记告警日志（描述被替换=疑似 Rug Pull）。
+					// 基线存 settings 表（无需 ALTER TABLE），纯可观测、不影响工具行为。
+					pinKey := "mcp_tool_desc_hash:" + m.Name + ":" + t.Name()
+					curHash := fmt.Sprintf("%x", sha256.Sum256([]byte(t.Description())))
+					if prev, ok, _ := pg.GetSetting(pinKey); !ok {
+						_ = pg.SetSetting(pinKey, curHash)
+					} else if prev != curHash {
+						log.Printf("[mcp-pin] 工具描述变更(疑似 Rug Pull/投毒) server=%s tool=%s 基线=%.12s 当前=%.12s", m.Name, t.Name(), prev, curHash)
+						_ = pg.SetSetting(pinKey, curHash) // 更新基线，避免同一工具每轮重复告警
 					}
 					extra = append(extra, t)
 					allNames = append(allNames, t.Name())

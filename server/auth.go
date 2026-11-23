@@ -23,14 +23,19 @@ const (
 	authPassKey    = "auth.password_hash"
 	// authTokenVersionKey 是管理员 JWT 的撤销版本号。改密成功后递增，
 	// 旧 token 因 claim 里的 "tv" 与当前版本不符而被拒绝。缺省/空视为 "1"。
-	authTokenVersionKey    = "auth.token_version"
+	authTokenVersionKey     = "auth.token_version"
 	defaultAuthTokenVersion = "1"
-	jwtTTL                 = 7 * 24 * time.Hour
-	keyChars               = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	jwtTTL                  = 7 * 24 * time.Hour
+	keyChars                = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-	// loginUsername 是唯一的登录用户名。提常量而不是散在 handler 里的字符串
-	// 字面量：它同时被时序侧信道防护用到，散字面量容易改漏一处造成不一致。
+	// loginUsername 是默认登录用户名，可从 DB settings(auth_username) 覆盖。
+	// 提常量而不是散在 handler 里的字符串字面量：它同时被时序侧信道防护用到，
+	// 散字面量容易改漏一处造成不一致。
 	loginUsername = "ARTEX"
+
+	// authUserKey 允许部署方覆盖登录用户名（如改 "baize" 避免暴露 ARTEX 指纹）。
+	// 未设置时回退到 loginUsername 常量。
+	authUserKey = "auth_username"
 
 	// 下限与 setup 页的前端校验一致——校验只放在前端等于没放，直接打 API 就能
 	// 绕过。上限是 bcrypt 的硬限制：超过 72 字节 GenerateFromPassword 会返回
@@ -280,6 +285,25 @@ func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"initialized": hash != ""})
 }
 
+// GET /api/auth/config — returns the configured admin login username (default
+// "ARTEX") so the login page can render it without hardcoding. 仅返回用户名（非
+// 敏感），/api/auth/* 已豁免鉴权，供登录前调用。
+func (s *Server) authConfig(w http.ResponseWriter, r *http.Request) {
+	pg := s.pg(w)
+	if pg == nil {
+		return
+	}
+	username, _, err := pg.GetSetting(authUserKey)
+	if err != nil {
+		writeProductError(w, 503, "data_unavailable", errDataSourceUnavailable, nil)
+		return
+	}
+	if username == "" {
+		username = loginUsername
+	}
+	writeJSON(w, 200, map[string]any{"username": username})
+}
+
 // POST /api/auth/init — sets the password for the first time; rejected if already set.
 func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 	// 初始化接口在密码不存在时是唯一入口，攻击者用它反复试探可以枚举"是否已
@@ -453,7 +477,17 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeProductError(w, 400, "invalid_request", "请求格式错误", nil)
 		return
 	}
-	if req.Username != loginUsername {
+	// 登录用户名可从 DB 覆盖（默认 ARTEX）。读一次，供正常路径与下方时序防护共用，
+	// 避免两条路径比较不一致。
+	username, _, err := pg.GetSetting(authUserKey)
+	if err != nil {
+		writeProductError(w, 503, "data_unavailable", errDataSourceUnavailable, nil)
+		return
+	}
+	if username == "" {
+		username = loginUsername
+	}
+	if req.Username != username {
 		// 时序侧信道防护：这条路径原本直接返回，跳过了 bcrypt，于是"用户名错"
 		// 几十毫秒就回、"用户名对但密码错"要跑一遍 bcrypt（~100ms+）。攻击者按
 		// 响应耗时就能把真实用户名枚举出来——而它本来只有一个可选值。这里补跑

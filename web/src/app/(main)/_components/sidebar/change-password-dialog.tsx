@@ -32,6 +32,7 @@ export function ChangePasswordDialog({
   const [newPassword, setNewPassword] = React.useState("");
   const [confirmPassword, setConfirmPassword] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [username, setUsername] = React.useState("ARTEX");
 
   // reset fields whenever the dialog closes
   React.useEffect(() => {
@@ -39,6 +40,14 @@ export function ChangePasswordDialog({
       setOldPassword("");
       setNewPassword("");
       setConfirmPassword("");
+    } else {
+      // 登录用户名可从后端配置覆盖（默认 ARTEX），打开时读取用于展示。
+      api
+        .authConfig()
+        .then((cfg) => setUsername(cfg.username))
+        .catch(() => {
+          /* 读取失败保留默认 ARTEX */
+        });
     }
   }, [open]);
 
@@ -74,7 +83,7 @@ export function ChangePasswordDialog({
           <DialogHeader>
             <DialogTitle>{t("account.changePassword")}</DialogTitle>
             <DialogDescription>
-              {t("account.usernameFixed")} <b>ARTEX</b>
+              {t("account.usernameFixed")} <b>{username}</b>
               {t("account.tokenNotice")}
             </DialogDescription>
           </DialogHeader>

@@ -56,8 +56,8 @@ type Server struct {
 	// lastLogPrune 是上次 server_logs 保留策略修剪时刻（log_retention.go）。
 	lastLogPrune time.Time
 
-	skillDir  string // root directory for skill subdirectories
-	jwtKey    []byte // HS256 signing key loaded from / generated into dataDir/jwt.key
+	skillDir string // root directory for skill subdirectories
+	jwtKey   []byte // HS256 signing key loaded from / generated into dataDir/jwt.key
 	// authTokenVerMu guards the cached admin-JWT version. The version lives in
 	// settings (auth.token_version) and is loaded once at startup; it is bumped
 	// under this mutex on password change so old tokens are revoked immediately.
@@ -844,6 +844,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Auth routes — exempt from JWT check (handled in requireAuth)
 	mux.HandleFunc("GET /api/auth/status", s.authStatus)
+	mux.HandleFunc("GET /api/auth/config", s.authConfig)
 	mux.HandleFunc("POST /api/auth/init", s.authInit)
 	mux.HandleFunc("POST /api/auth/login", s.authLogin)
 	mux.HandleFunc("POST /api/auth/change-password", s.authChangePassword)
