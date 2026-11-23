@@ -1906,3 +1906,16 @@ CREATE TABLE IF NOT EXISTS obsidian_notes (
     UNIQUE (vault, rel_path)
 );
 CREATE INDEX IF NOT EXISTS idx_obsidian_notes_vault ON obsidian_notes(vault);
+
+-- mcp_security_events：MCP 供应链安全事件（描述变更 pinning / 工具名碰撞 shadow）。
+-- 与 mcp_audit_log（token 级调用审计）语义不同：这里记录的是装配期检测到的
+-- 投毒/遮蔽信号，供前端「安全事件」面板与运维追溯。事件只增不改，保留最近 N 条。
+CREATE TABLE IF NOT EXISTS mcp_security_events (
+    id          BIGSERIAL PRIMARY KEY,
+    kind        TEXT NOT NULL CHECK (kind IN ('pin','shadow')),
+    server_name TEXT NOT NULL DEFAULT '',
+    tool_name   TEXT NOT NULL DEFAULT '',
+    detail      TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_security_events_created ON mcp_security_events(created_at DESC);

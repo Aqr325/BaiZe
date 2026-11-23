@@ -116,6 +116,12 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 					// 保留先到者并告警，避免模型调用了错误 server 的工具。
 					if owner, collided := claimToolName(toolOwner, t.Name(), m.Name); collided {
 						log.Printf("[mcp-shadow] 工具全名碰撞被拒绝: name=%s 已属 server=%q, 来自 server=%q（请检查 mcp_servers.name 是否重复）", t.Name(), owner, m.Name)
+						if err := pg.InsertMCPSecurityEvent(db.MCPSecurityEvent{
+							Kind: "shadow", ServerName: m.Name, ToolName: t.Name(),
+							Detail: fmt.Sprintf("全名碰撞: 已属 server=%q（请检查 mcp_servers.name 是否重复）", owner),
+						}); err != nil {
+							log.Printf("[mcp-shadow] 事件落库失败: %v", err)
+						}
 						continue
 					}
 					// --- 工具描述 hash pinning（B 类防御 · 防 Rug Pull/工具投毒）---
@@ -128,6 +134,12 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 						_ = pg.SetSetting(pinKey, curHash)
 					} else if prev != curHash {
 						log.Printf("[mcp-pin] 工具描述变更(疑似 Rug Pull/投毒) server=%s tool=%s 基线=%.12s 当前=%.12s", m.Name, t.Name(), prev, curHash)
+						if err := pg.InsertMCPSecurityEvent(db.MCPSecurityEvent{
+							Kind: "pin", ServerName: m.Name, ToolName: t.Name(),
+							Detail: fmt.Sprintf("描述变更 基线=%.12s 当前=%.12s", prev, curHash),
+						}); err != nil {
+							log.Printf("[mcp-pin] 事件落库失败: %v", err)
+						}
 						_ = pg.SetSetting(pinKey, curHash) // 更新基线，避免同一工具每轮重复告警
 					}
 					extra = append(extra, t)

@@ -538,6 +538,7 @@ CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
 |---|---|---|
 | **MCP 工具描述 hash pinning** | 连接 MCP 后对每个工具描述算 sha256，基线存 `settings(mcp_tool_desc_hash:<server>:<tool>)`；变更记 `[mcp-pin]` 告警（疑似 Rug Pull / 投毒）。用现有 settings 表，无表结构变更 | 🔒 供应链 / 投毒可观测 |
 | **MCP 命名空间隔离** | 工具全名 `mcp__<server>__<tool>`（stdio/http 同方案）；装配时维护全名 owner，跨 server 碰撞记 `[mcp-shadow]` 告警并拒绝后者（防同名 server 工具静默遮蔽 / 串台） | 🔒 工具层 |
+| **MCP 安全事件可观测** | `[mcp-pin]` / `[mcp-shadow]` 事件结构化落 `mcp_security_events`（含 server/tool/哈希摘要/时间，保留 500 条）；`GET /api/security/mcp-events` 只读查询；Settings→MCP 页「安全事件」面板可视化 | 🔒 供应链 / 事后归因 |
 | **MCP 身份改名** | `clientInfo` / `serverInfo` `name:"artex"→"baize"`、`title:"白泽"`，消除 ARTEX 家族强指纹（MCP 握手检测） | 🔒 身份指纹 |
 | **登录用户名可配置** | `auth.go` 读 `settings(auth_username)` 覆盖默认 ARTEX；保留时序侧信道防护一致性；新增 `GET /api/auth/config`，前端登录页 / 改密弹窗从配置读显示 | 🔒 身份指纹 |
 | **依赖钉版** | `api-recon` 的 `puppeteer-core ^23.11.1→25.18.1`（`--save-exact`），`ip-address`/`basic-ftp`/`extract-zip` 移出依赖树、`zod 3.23.8→4.6.7`；`npm audit` = **0 vulnerabilities** | 🔒 供应链 |

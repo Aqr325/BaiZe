@@ -1181,6 +1181,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/mcp-server/tokens/{id}/revoke", s.revokeMCPServerToken)
 	mux.HandleFunc("DELETE /api/mcp-server/tokens/{id}", s.deleteMCPServerToken)
 	mux.HandleFunc("GET /api/mcp-server/audit", s.listMCPServerAudit)
+	// MCP 供应链安全事件（描述变更 pin / 工具名碰撞 shadow），只读，装配期落库。
+	mux.HandleFunc("GET /api/security/mcp-events", s.listMCPSecurityEvents)
 	mux.HandleFunc("POST /api/mcp/{id}/refresh", s.pgRefreshMCP)
 	// 资产同步 — ScopeSentry 数据源
 	mux.HandleFunc("GET /api/sync/scopesentry/status", s.syncSSStatus)

@@ -532,3 +532,20 @@ func (s *Server) listMCPServerAudit(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"entries": entries})
 }
+
+// listMCPSecurityEvents returns assembly-time supply-chain signals (tool
+// description drift / qualified-name collisions) recorded during agent wiring.
+// GET-only, read-only; independent of token-level audit (listMCPServerAudit).
+func (s *Server) listMCPSecurityEvents(w http.ResponseWriter, r *http.Request) {
+	pg := s.pg(w)
+	if pg == nil {
+		return
+	}
+	kind := r.URL.Query().Get("kind") // "" | pin | shadow
+	entries, err := pg.ListMCPSecurityEvents(kind, atoiDefault(r.URL.Query().Get("limit"), 100))
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"entries": entries})
+}

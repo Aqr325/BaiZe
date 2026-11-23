@@ -221,6 +221,17 @@ export interface McpServerAuditEntry {
   created_at: string;
 }
 
+// Assembly-time MCP supply-chain signal: tool description drift (pin, suspected
+// Rug Pull) or qualified-name collision (shadow, cross-server tool masking).
+export interface McpSecurityEvent {
+  id: number;
+  kind: "pin" | "shadow";
+  server_name: string;
+  tool_name: string;
+  detail: string;
+  created_at: string;
+}
+
 // 401 is not always an expired session: the backend also uses it for business
 // validation failures (e.g. a wrong current password on change-password), and the
 // login/init/status probes legitimately return 401. Only clear credentials and
@@ -1287,6 +1298,8 @@ export const api = {
   deleteMcpServerToken: (id: number) => del<{ ok: boolean }>(`/mcp-server/tokens/${id}`),
   mcpServerAudit: (limit = 50) =>
     get<{ entries: McpServerAuditEntry[] }>(`/mcp-server/audit?limit=${limit}`).then((r) => arr(r.entries)),
+  mcpSecurityEvents: (limit = 50) =>
+    get<{ entries: McpSecurityEvent[] }>(`/security/mcp-events?limit=${limit}`).then((r) => arr(r.entries)),
   // Run a real "test" search with the given (or saved) config to verify it works.
   testWebSearch: (patch: {
     web_search_backend?: string;
