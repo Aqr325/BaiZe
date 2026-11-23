@@ -1,8 +1,115 @@
 package db
 
 import (
+	"encoding/json"
 	"time"
 )
+
+// MCPPinQuarantinePrefix is the settings key prefix for quarantined MCP tools.
+// Key layout: mcp_pin_quarantine:<server>:<tool> → JSON snapshot.
+const MCPPinQuarantinePrefix = "mcp_pin_quarantine:"
+
+// MCPPinEnforceKey is the settings key controlling whether a changed tool
+// description blocks the tool (true, default) or only warns (false).
+const MCPPinEnforceKey = "mcp_pin_enforce"
+
+// MCPToolQuarantine is a snapshot of a tool whose description drifted from its
+// approved baseline while enforcement was on. The tool is withheld from the
+// model until an administrator approves the new description (which advances the
+// baseline) or turns enforcement off.
+type MCPToolQuarantine struct {
+	ServerName string `json:"server_name"`
+	ToolName   string `json:"tool_name"`
+	OldHash    string `json:"old_hash"`
+	NewHash    string `json:"new_hash"`
+	Detail     string `json:"detail"`
+	DetectedAt string `json:"detected_at"`
+}
+
+func pinQuarantineKey(server, tool string) string {
+	return MCPPinQuarantinePrefix + server + ":" + tool
+}
+
+// SaveMCPToolQuarantine persists (or refreshes) a quarantine snapshot.
+func (d *DB) SaveMCPToolQuarantine(q MCPToolQuarantine) error {
+	b, err := json.Marshal(q)
+	if err != nil {
+		return err
+	}
+	return d.SetSetting(pinQuarantineKey(q.ServerName, q.ToolName), string(b))
+}
+
+// GetMCPToolQuarantine returns the snapshot for one tool, if quarantined.
+func (d *DB) GetMCPToolQuarantine(server, tool string) (*MCPToolQuarantine, error) {
+	raw, ok, err := d.GetSetting(pinQuarantineKey(server, tool))
+	if err != nil || !ok {
+		return nil, err
+	}
+	var q MCPToolQuarantine
+	if err := json.Unmarshal([]byte(raw), &q); err != nil {
+		return nil, err
+	}
+	return &q, nil
+}
+
+// ListMCPToolQuarantines returns every currently quarantined tool.
+func (d *DB) ListMCPToolQuarantines() ([]MCPToolQuarantine, error) {
+	all, err := d.ListSettingsByPrefix(MCPPinQuarantinePrefix)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MCPToolQuarantine, 0, len(all))
+	for _, raw := range all {
+		var q MCPToolQuarantine
+		if err := json.Unmarshal([]byte(raw), &q); err != nil {
+			continue // skip malformed snapshots rather than failing the whole list
+		}
+		out = append(out, q)
+	}
+	return out, nil
+}
+
+// ClearMCPToolQuarantine removes one tool's quarantine snapshot.
+func (d *DB) ClearMCPToolQuarantine(server, tool string) error {
+	return d.DeleteSetting(pinQuarantineKey(server, tool))
+}
+
+// ApproveMCPToolQuarantine approves a quarantined tool: it advances the pin
+// baseline to the snapshot's new hash and clears the quarantine, so the next
+// agent assembly trusts the new description and the tool reappears.
+func (d *DB) ApproveMCPToolQuarantine(server, tool string) (*MCPToolQuarantine, error) {
+	q, err := d.GetMCPToolQuarantine(server, tool)
+	if err != nil {
+		return nil, err
+	}
+	if q == nil {
+		return nil, nil // nothing to approve
+	}
+	baselineKey := "mcp_tool_desc_hash:" + server + ":" + tool
+	if err := d.SetSetting(baselineKey, q.NewHash); err != nil {
+		return nil, err
+	}
+	if err := d.ClearMCPToolQuarantine(server, tool); err != nil {
+		return nil, err
+	}
+	return q, nil
+}
+
+// pinBaselineKey builds the settings key holding a tool's approved hash.
+// Kept here so assembly and approval share one definition.
+func pinBaselineKey(server, tool string) string {
+	return "mcp_tool_desc_hash:" + server + ":" + tool
+}
+
+// GetMCPPinBaseline returns the approved description hash for a tool ("" if unset).
+func (d *DB) GetMCPPinBaseline(server, tool string) (string, bool, error) {
+	return d.GetSetting(pinBaselineKey(server, tool))
+}
+
+// SetMCPPinBaseline stores a tool's approved description hash.
+func (d *DB) SetMCPPinBaseline(server, tool, hash string) error {
+	return d.SetSetting(pinBaselineKey(server, tool), hash)
+}
 
 // MCPSecurityEvent is one assembly-time supply-chain signal detected while
 // wiring MCP tools into an agent. It is distinct from MCPAuditEntry (which

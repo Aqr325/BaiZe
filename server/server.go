@@ -1183,6 +1183,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/mcp-server/audit", s.listMCPServerAudit)
 	// MCP 供应链安全事件（描述变更 pin / 工具名碰撞 shadow），只读，装配期落库。
 	mux.HandleFunc("GET /api/security/mcp-events", s.listMCPSecurityEvents)
+	// MCP pinning 强制阻断：隔离列表 / 批准 / 开关。
+	mux.HandleFunc("GET /api/security/mcp-pin/quarantine", s.listMCPPinQuarantine)
+	mux.HandleFunc("POST /api/security/mcp-pin/approve", s.approveMCPPin)
+	mux.HandleFunc("GET /api/security/mcp-pin/config", s.getMCPPinConfig)
+	mux.HandleFunc("PUT /api/security/mcp-pin/config", s.putMCPPinConfig)
 	mux.HandleFunc("POST /api/mcp/{id}/refresh", s.pgRefreshMCP)
 	// 资产同步 — ScopeSentry 数据源
 	mux.HandleFunc("GET /api/sync/scopesentry/status", s.syncSSStatus)

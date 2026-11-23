@@ -232,6 +232,17 @@ export interface McpSecurityEvent {
   created_at: string;
 }
 
+// A tool withheld from the model because its MCP description drifted from the
+// approved baseline. Approving advances the baseline so it reappears.
+export interface McpPinQuarantine {
+  server_name: string;
+  tool_name: string;
+  old_hash: string;
+  new_hash: string;
+  detail: string;
+  detected_at: string;
+}
+
 // 401 is not always an expired session: the backend also uses it for business
 // validation failures (e.g. a wrong current password on change-password), and the
 // login/init/status probes legitimately return 401. Only clear credentials and
@@ -1300,6 +1311,13 @@ export const api = {
     get<{ entries: McpServerAuditEntry[] }>(`/mcp-server/audit?limit=${limit}`).then((r) => arr(r.entries)),
   mcpSecurityEvents: (limit = 50) =>
     get<{ entries: McpSecurityEvent[] }>(`/security/mcp-events?limit=${limit}`).then((r) => arr(r.entries)),
+  mcpPinQuarantine: () =>
+    get<{ items: McpPinQuarantine[]; enforce: boolean }>("/security/mcp-pin/quarantine"),
+  mcpPinApprove: (server: string, tool: string) =>
+    post<{ ok: boolean }>("/security/mcp-pin/approve", { server, tool }),
+  mcpPinConfig: () => get<{ enforce: boolean }>("/security/mcp-pin/config"),
+  mcpPinSetConfig: (enforce: boolean) =>
+    put<{ enforce: boolean }>("/security/mcp-pin/config", { enforce }),
   // Run a real "test" search with the given (or saved) config to verify it works.
   testWebSearch: (patch: {
     web_search_backend?: string;

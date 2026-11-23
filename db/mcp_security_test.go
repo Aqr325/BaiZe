@@ -61,3 +61,62 @@ func TestMCPSecurityEvents(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPToolQuarantineLifecycle(t *testing.T) {
+	d, err := Open(testDSN(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+
+	srv, tool := "test-pin-srv", "test-pin-tool"
+	q := MCPToolQuarantine{
+		ServerName: srv, ToolName: tool,
+		OldHash: "aaa", NewHash: "bbb",
+		Detail: "描述变更", DetectedAt: "2026-11-23T22:00:00Z",
+	}
+	t.Cleanup(func() {
+		_ = d.ClearMCPToolQuarantine(srv, tool)
+		_ = d.DeleteSetting("mcp_tool_desc_hash:" + srv + ":" + tool)
+	})
+
+	if err := d.SaveMCPToolQuarantine(q); err != nil {
+		t.Fatal(err)
+	}
+	got, err := d.GetMCPToolQuarantine(srv, tool)
+	if err != nil || got == nil || got.NewHash != "bbb" {
+		t.Fatalf("get: %+v %v", got, err)
+	}
+	list, err := d.ListMCPToolQuarantines()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range list {
+		if item.ServerName == srv && item.ToolName == tool {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("quarantine not listed")
+	}
+
+	// approve advances baseline to the new hash and clears quarantine
+	approved, err := d.ApproveMCPToolQuarantine(srv, tool)
+	if err != nil || approved == nil {
+		t.Fatalf("approve: %+v %v", approved, err)
+	}
+	base, ok, err := d.GetMCPPinBaseline(srv, tool)
+	if err != nil || !ok || base != "bbb" {
+		t.Fatalf("baseline after approve: %q ok=%v %v", base, ok, err)
+	}
+	got, err = d.GetMCPToolQuarantine(srv, tool)
+	if err != nil || got != nil {
+		t.Fatalf("quarantine should be cleared: %+v %v", got, err)
+	}
+	// idempotent approve on missing → nil, no error
+	again, err := d.ApproveMCPToolQuarantine(srv, tool)
+	if err != nil || again != nil {
+		t.Fatalf("approve again: %+v %v", again, err)
+	}
+}

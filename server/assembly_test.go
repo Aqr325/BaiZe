@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,6 +15,32 @@ import (
 // TestClaimToolNameIsolatesNamespaces verifies the MCP namespace guard: two
 // different servers must not be able to claim the same fully-qualified tool name
 // (which would silently shadow one server's tool with another's).
+func TestPinDecision(t *testing.T) {
+	cases := []struct {
+		name                   string
+		prev                   string
+		hasBaseline            bool
+		cur                    string
+		readErr                error
+		enforce                bool
+		wantBlock, wantAdvance bool
+	}{
+		{"read error -> fail open, advance", "", false, "new", errors.New("db down"), true, false, true},
+		{"no baseline -> trust & advance", "", false, "new", nil, true, false, true},
+		{"unchanged -> pass", "abc", true, "abc", nil, true, false, false},
+		{"changed + enforce -> block", "abc", true, "def", nil, true, true, false},
+		{"changed + no enforce -> warn & advance", "abc", true, "def", nil, false, false, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			block, advance := pinDecision(c.prev, c.hasBaseline, c.cur, c.readErr, c.enforce)
+			if block != c.wantBlock || advance != c.wantAdvance {
+				t.Fatalf("got block=%v advance=%v, want block=%v advance=%v", block, advance, c.wantBlock, c.wantAdvance)
+			}
+		})
+	}
+}
+
 func TestClaimToolNameIsolatesNamespaces(t *testing.T) {
 	owners := map[string]string{}
 	const full = "mcp__shared__run"

@@ -59,6 +59,32 @@ ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, key
 	return err
 }
 
+// DeleteSetting removes a setting key. Used to clear MCP pin quarantine state
+// after an administrator approves a changed tool description.
+func (d *DB) DeleteSetting(key string) error {
+	_, err := d.Exec(`DELETE FROM settings WHERE key=$1`, key)
+	return err
+}
+
+// ListSettingsByPrefix returns all settings whose key starts with prefix.
+// Used to enumerate mcp_pin_quarantine:* without a dedicated table.
+func (d *DB) ListSettingsByPrefix(prefix string) (map[string]string, error) {
+	rows, err := d.Query(`SELECT key, value FROM settings WHERE key LIKE $1 || '%'`, prefix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		out[k] = v
+	}
+	return out, rows.Err()
+}
+
 // SetSettingsAtomic upserts several settings in one transaction. Keys are
 // sorted so concurrent callers acquire row locks in a deterministic order.
 func (d *DB) SetSettingsAtomic(ctx context.Context, values map[string]string) error {

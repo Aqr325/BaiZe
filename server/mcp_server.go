@@ -549,3 +549,75 @@ func (s *Server) listMCPSecurityEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"entries": entries})
 }
+
+// listMCPPinQuarantine returns MCP tools currently withheld from the model
+// because their description drifted from the approved baseline (enforcement on).
+func (s *Server) listMCPPinQuarantine(w http.ResponseWriter, r *http.Request) {
+	pg := s.pg(w)
+	if pg == nil {
+		return
+	}
+	items, err := pg.ListMCPToolQuarantines()
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"items": items, "enforce": pg.GetBool(db.MCPPinEnforceKey, true)})
+}
+
+// approveMCPPin advances a quarantined tool's baseline to the inspected
+// description and clears its quarantine, so it reappears on next assembly.
+func (s *Server) approveMCPPin(w http.ResponseWriter, r *http.Request) {
+	pg := s.pg(w)
+	if pg == nil {
+		return
+	}
+	var req struct {
+		Server string `json:"server"`
+		Tool   string `json:"tool"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Server == "" || req.Tool == "" {
+		writeErr(w, 400, "server 和 tool 必填")
+		return
+	}
+	approved, err := pg.ApproveMCPToolQuarantine(req.Server, req.Tool)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if approved == nil {
+		writeErr(w, 404, "未找到该工具的隔离记录")
+		return
+	}
+	log.Printf("[mcp-pin] 管理员批准工具描述 server=%s tool=%s new_hash=%.12s", req.Server, req.Tool, approved.NewHash)
+	writeJSON(w, 200, map[string]any{"ok": true, "approved": approved})
+}
+
+// getMCPPinConfig / putMCPPinConfig read and write the enforcement switch.
+func (s *Server) getMCPPinConfig(w http.ResponseWriter, r *http.Request) {
+	pg := s.pg(w)
+	if pg == nil {
+		return
+	}
+	writeJSON(w, 200, map[string]any{"enforce": pg.GetBool(db.MCPPinEnforceKey, true)})
+}
+
+func (s *Server) putMCPPinConfig(w http.ResponseWriter, r *http.Request) {
+	pg := s.pg(w)
+	if pg == nil {
+		return
+	}
+	var req struct {
+		Enforce *bool `json:"enforce"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Enforce == nil {
+		writeErr(w, 400, "enforce 必填(true/false)")
+		return
+	}
+	if err := pg.SetBool(db.MCPPinEnforceKey, *req.Enforce); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	log.Printf("[mcp-pin] 强制阻断开关设为 %v", *req.Enforce)
+	writeJSON(w, 200, map[string]any{"enforce": *req.Enforce})
+}

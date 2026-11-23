@@ -9,6 +9,7 @@ import (
 	"log"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Autumn-27/baize/agent"
 	"github.com/Autumn-27/baize/db"
@@ -125,22 +126,32 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 						continue
 					}
 					// --- 工具描述 hash pinning（B 类防御 · 防 Rug Pull/工具投毒）---
-					// 第三方 MCP 工具描述进入模型上下文前，计算 sha256 并与上次基线比对。
-					// 首次连接 → 存基线；后续变更 → 记告警日志（描述被替换=疑似 Rug Pull）。
-					// 基线存 settings 表（无需 ALTER TABLE），纯可观测、不影响工具行为。
-					pinKey := "mcp_tool_desc_hash:" + m.Name + ":" + t.Name()
+					// 第三方 MCP 工具描述进入模型上下文前算 sha256 与基线比对：
+					//   · 首次连接（无基线）→ 信任并存基线（避免连不上的 MCP 误伤）
+					//   · 描述未变 → 正常放行
+					//   · 描述变更 → 落库告警 + 事件；enforce 开启时把工具隔离（不进 extra，
+					//     模型完全看不到），管理员批准后才恢复；关闭时兼容旧行为（告警+洗白）
+					// 基线/隔离状态存 settings 表，无需 ALTER TABLE。
+					enforce := pg.GetBool(db.MCPPinEnforceKey, true) // fail-safe：默认阻断
 					curHash := fmt.Sprintf("%x", sha256.Sum256([]byte(t.Description())))
-					if prev, ok, _ := pg.GetSetting(pinKey); !ok {
-						_ = pg.SetSetting(pinKey, curHash)
-					} else if prev != curHash {
-						log.Printf("[mcp-pin] 工具描述变更(疑似 Rug Pull/投毒) server=%s tool=%s 基线=%.12s 当前=%.12s", m.Name, t.Name(), prev, curHash)
+					prev, hasBaseline, pinErr := pg.GetMCPPinBaseline(m.Name, t.Name())
+					block, advance := pinDecision(prev, hasBaseline, curHash, pinErr, enforce)
+					if block {
+						detail := fmt.Sprintf("描述变更已隔离 基线=%.12s 当前=%.12s（待批准）", prev, curHash)
+						log.Printf("[mcp-pin] 工具已隔离(疑似 Rug Pull/投毒) server=%s tool=%s %s", m.Name, t.Name(), detail)
 						if err := pg.InsertMCPSecurityEvent(db.MCPSecurityEvent{
-							Kind: "pin", ServerName: m.Name, ToolName: t.Name(),
-							Detail: fmt.Sprintf("描述变更 基线=%.12s 当前=%.12s", prev, curHash),
+							Kind: "pin", ServerName: m.Name, ToolName: t.Name(), Detail: detail,
 						}); err != nil {
 							log.Printf("[mcp-pin] 事件落库失败: %v", err)
 						}
-						_ = pg.SetSetting(pinKey, curHash) // 更新基线，避免同一工具每轮重复告警
+						_ = pg.SaveMCPToolQuarantine(db.MCPToolQuarantine{
+							ServerName: m.Name, ToolName: t.Name(), OldHash: prev, NewHash: curHash,
+							Detail: detail, DetectedAt: time.Now().UTC().Format(time.RFC3339),
+						})
+						continue // 阻断：工具不进 extra，模型不可见
+					}
+					if advance {
+						_ = pg.SetMCPPinBaseline(m.Name, t.Name(), curHash)
 					}
 					extra = append(extra, t)
 					allNames = append(allNames, t.Name())
@@ -240,6 +251,29 @@ func claimToolName(owners map[string]string, fullName, server string) (string, b
 	}
 	owners[fullName] = server
 	return "", false
+}
+
+// pinDecision is the pure policy for tool-description pinning. It returns:
+//   - block: withhold the tool from the model (quarantine) until approved
+//   - advance: update the approved baseline to curHash
+//
+// Rules (fail-safe first):
+//   - baseline read error → do NOT block (avoid dropping every tool on a transient DB error)
+//   - no baseline (first sight) → trust & advance (avoids breaking servers that just came online)
+//   - unchanged → pass through
+//   - changed + enforce → block (no advance; approving advances the baseline)
+//   - changed + !enforce → warn-only legacy behavior: pass through & advance
+func pinDecision(prev string, hasBaseline bool, cur string, readErr error, enforce bool) (block bool, advance bool) {
+	if readErr != nil || !hasBaseline {
+		return false, true
+	}
+	if prev == cur {
+		return false, false
+	}
+	if enforce {
+		return true, false
+	}
+	return false, true
 }
 
 func isBrowserScreenshotTool(name string) bool {
