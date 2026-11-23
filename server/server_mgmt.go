@@ -1608,11 +1608,29 @@ func skillRelPath(file string) (string, string) {
 	return clean, ""
 }
 
-// walkSkillFiles returns all files under root (relative to root), sorted,
+// vendoredSkillDirs are dependency / build-cache directories that are never
+// part of a skill's source. Pruning them keeps the Skills page responsive when
+// a skill carries a large dependency tree (e.g. api-recon's node_modules has
+// >10k files), and stops the frontend file tree from being flooded with
+// third-party files. Read/write of individual files is unaffected — only the
+// directory listing is pruned.
+var vendoredSkillDirs = map[string]bool{
+	"node_modules": true,
+	".venv":        true,
+	"venv":         true,
+	"__pycache__":  true,
+	".git":         true,
+	".next":        true,
+	"dist":         true,
+	"build":        true,
+	"vendor":       true,
+}
+
+// walkSkillFiles returns all source entries under root (relative to root),
 // including files in subdirectories (scripts/, references/, assets/, etc.).
-// walkSkillFiles returns all entries under root relative to root.
 // Directories are included with a trailing "/" so the frontend can distinguish
-// them from files and render empty folders in the tree.
+// them from files and render empty folders in the tree. Vendored directories
+// (node_modules, .venv, ...) are pruned rather than listed.
 func walkSkillFiles(root string) ([]string, error) {
 	var entries []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -1622,6 +1640,9 @@ func walkSkillFiles(root string) ([]string, error) {
 		rel, relErr := filepath.Rel(root, path)
 		if relErr != nil || rel == "." {
 			return nil
+		}
+		if d.IsDir() && vendoredSkillDirs[d.Name()] {
+			return filepath.SkipDir
 		}
 		// The file list is an HTTP API contract consumed by a frontend that splits
 		// paths on '/'. filepath.Rel uses '\\' on Windows, so normalize before the

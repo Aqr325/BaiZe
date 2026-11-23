@@ -91,6 +91,53 @@ func TestWalkSkillFilesUsesSlashSeparatedAPIPaths(t *testing.T) {
 	}
 }
 
+func TestWalkSkillFilesPrunesVendoredDirs(t *testing.T) {
+	root := t.TempDir()
+	files := []string{
+		"SKILL.md",
+		"scripts/run.py",
+		"node_modules/huge/package.json", // must be pruned
+		".venv/lib/site-packages/dep.py", // must be pruned
+		"__pycache__/mod.pyc",            // must be pruned
+		"references/guide.md",            // kept: normal nested source
+	}
+	for _, f := range files {
+		p := filepath.Join(root, filepath.FromSlash(f))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := walkSkillFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"SKILL.md",
+		"references/",
+		"references/guide.md",
+		"scripts/",
+		"scripts/run.py",
+	}
+	if len(entries) != len(want) {
+		t.Fatalf("walkSkillFiles() = %q, want %q (vendored dirs must be pruned)", entries, want)
+	}
+	for i := range want {
+		if entries[i] != want[i] {
+			t.Errorf("walkSkillFiles()[%d] = %q, want %q", i, entries[i], want[i])
+		}
+	}
+	for _, bad := range []string{"node_modules", ".venv", "__pycache__"} {
+		for _, e := range entries {
+			if strings.HasPrefix(e, bad+"/") || e == bad+"/" {
+				t.Errorf("vendored dir %q leaked into entries: %q", bad, e)
+			}
+		}
+	}
+}
+
 type nopWriteCloser struct{ io.Writer }
 
 func (nopWriteCloser) Close() error { return nil }
