@@ -85,14 +85,17 @@ func renderSystem(agentKey, def string, vars any) string {
 	} else {
 		body = def
 	}
-	// 记忆块与 OPSEC 尾注都是代码拥有的：DB 里可编辑的正文无权删掉它们。
-	// 记忆在前、OPSEC 在后，让安全约束始终落在提示词最末。
+	// 记忆块与 OPSEC / 外部数据尾注都是代码拥有的：DB 里可编辑的正文无权删掉它们。
+	// 记忆在前、安全约束在后，让安全约束始终落在提示词最末。
 	out := body
 	if mem := memoryTail(promptTaskID(vars)); mem != "" {
 		out += "\n\n" + mem
 	}
 	if OpsecEnabled != nil && OpsecEnabled() {
 		out += "\n\n" + opsecPromptBlock
+	}
+	if untrustedOn() {
+		out += "\n\n" + untrustedPromptBlock
 	}
 	return out
 }

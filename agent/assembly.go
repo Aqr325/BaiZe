@@ -99,5 +99,12 @@ func (g *guardedTool) Call(ctx context.Context, in json.RawMessage, tc *actool.T
 			res, err = actool.Errorf(fmt.Sprintf("工具 %s 内部错误：%v（本次调用已失败，可换个参数或改用别的工具）", g.Name(), r)), nil
 		}
 	}()
-	return g.CoreTool.Call(ctx, in, tc)
+	res, err = g.CoreTool.Call(ctx, in, tc)
+	// 外部内容不可信标记：对 WebFetch / MCP 工具返回的成功文本加数据块围栏，
+	// 防止被测网页/第三方 MCP 返回的注入文本与系统指令同窗被当作命令执行。
+	// 仅处理成功结果（错误是平台自身文案，无需围栏），开关关闭时零开销透传。
+	if err == nil && !res.IsError && untrustedOn() && isExternalContentTool(g.Name()) {
+		markExternalResult(g.Name(), &res)
+	}
+	return res, err
 }

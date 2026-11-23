@@ -256,6 +256,9 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	// override row, agents keep their built-in defaults — behavior is unchanged.
 	if m.pg != nil {
 		agent.OpsecEnabled = func() bool { return m.pg.GetBool(settingOpsecEnabled, false) }
+		// 外部内容不可信标记：WebFetch / MCP 返回值加数据块围栏 + 系统提示词边界。
+		// 默认开启（fail-safe）：安全默认，用户可显式关闭回到旧行为。
+		agent.UntrustedMarkingEnabled = func() bool { return m.pg.GetBool(settingUntrustedMarking, true) }
 		// 长期记忆：接线到 memories 表，agent 系统提示词据此注入【已沉淀记忆】。
 		s.wireMemoryHooks()
 		agent.PromptOverride = func(key string) (string, bool) {
@@ -3800,6 +3803,7 @@ func (s *Server) settingsPayload() map[string]any {
 		"browser_screenshot_enabled":           s.m.pg.GetBool(settingBrowserScreenshot, false),
 		"browser_screenshot_timestamp_enabled": s.m.pg.GetBool(settingScreenshotTimestamp, false),
 		"opsec_enabled":                        s.m.pg.GetBool(settingOpsecEnabled, false),
+		"untrusted_marking":                    s.m.pg.GetBool(settingUntrustedMarking, true),
 		"agent_traffic_binding":                s.m.pg.GetBool(settingAgentTrafficBinding, false),
 		"task_intelligence_enabled":            s.m.pg.GetBool(db.SettingTaskIntelligence, false),
 		db.SettingTaskAutoTitle:                s.m.pg.GetBool(db.SettingTaskAutoTitle, false),
@@ -3904,6 +3908,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		BrowserScreenshot   *bool `json:"browser_screenshot_enabled"`
 		ScreenshotTimestamp *bool `json:"browser_screenshot_timestamp_enabled"`
 		OpsecEnabled        *bool `json:"opsec_enabled"`
+		UntrustedMarking    *bool `json:"untrusted_marking"`
 		AgentTrafficBinding *bool `json:"agent_traffic_binding"`
 		TaskIntelligence    *bool `json:"task_intelligence_enabled"`
 		TaskAutoTitle       *bool `json:"task_auto_title_enabled"`
@@ -4132,6 +4137,10 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.OpsecEnabled != nil {
 		values[settingOpsecEnabled] = strconv.FormatBool(*req.OpsecEnabled)
+	}
+	if req.UntrustedMarking != nil {
+		values[settingUntrustedMarking] = strconv.FormatBool(*req.UntrustedMarking)
+		// 运行时钩子读的就是这个 setting，无需重建 agent；下次 renderSystem 立即生效。
 	}
 	if req.TrafficCapture != nil {
 		if err := s.m.SetTrafficEnabled(*req.TrafficCapture); err != nil {

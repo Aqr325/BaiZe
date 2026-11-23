@@ -33,6 +33,8 @@ export const settingsMessages = {
   "settings.timestampsDisabled": ["已关闭截图时间标记", "Screenshot timestamps disabled"],
   "settings.opsecEnabled": ["已开启 OPSEC 准则", "OPSEC guidelines enabled"],
   "settings.opsecDisabled": ["已关闭 OPSEC 准则", "OPSEC guidelines disabled"],
+  "settings.untrustedEnabled": ["已开启外部内容不可信标记", "Untrusted content marking enabled"],
+  "settings.untrustedDisabled": ["已关闭外部内容不可信标记", "Untrusted content marking disabled"],
   "settings.category.system": ["系统与账号", "System and account"],
   "settings.category.systemHint": ["版本、登录与基础配置", "Version, sign-in and basic settings"],
   "settings.category.traffic": ["流量与安全", "Traffic and security"],
@@ -173,6 +175,11 @@ export const settingsMessages = {
   "settings.opsecHelp": [
     "要求执行型 Agent 复用流量和浏览器特征、控制请求噪声，并遵守平台代理与授权范围。",
     "Require execution Agents to reuse traffic and browser characteristics, reduce request noise, and respect platform proxy settings and authorized scope.",
+  ],
+  "settings.untrustedMarking": ["外部内容不可信标记", "Untrusted content marking"],
+  "settings.untrustedMarkingHelp": [
+    "将 WebFetch 网页与 MCP 工具的返回内容包成不可信数据块并加内容哈希，防止其中的注入文本被当作指令执行。默认开启。",
+    "Wrap WebFetch pages and MCP tool results in untrusted data blocks with content hashes, preventing injected text from being executed as instructions. On by default.",
   ],
   "settings.globalProxy": ["全局代理", "Global proxy"],
   "settings.globalProxyHelp": [

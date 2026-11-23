@@ -537,6 +537,7 @@ CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
 | 落地项 | 说明 | 类别 |
 |---|---|---|
 | **MCP 工具描述 pinning + 阻断批准** | 描述 sha256 基线存 settings；变更时默认**阻断**（工具从模型上下文移除，快照入隔离区），管理员在面板批准后基线推进、下次装配自动恢复。`mcp_pin_enforce` 可关（仅告警）；首次连接/读库失败 fail-open 避免误伤 | 🔒 供应链 / Rug Pull 防御 |
+| **外部内容不可信标记** | WebFetch 网页 / MCP 工具返回的成功文本统一包成 `<untrusted_external_data>` 数据块：加来源与内容 sha256、`<`/`>` 边界转义（防伪造闭合标签逃出围栏）、剥离零宽/双向控制字符（防隐藏 IPI）；系统提示词尾部注入可信边界声明（代码拥有、DB 改不掉）。`untrusted_marking` 默认开启，可在设置页关闭 | 🔒 上下文层 / 间接提示注入 |
 | **MCP 命名空间隔离** | 工具全名 `mcp__<server>__<tool>`（stdio/http 同方案）；装配时维护全名 owner，跨 server 碰撞记 `[mcp-shadow]` 告警并拒绝后者（防同名 server 工具静默遮蔽 / 串台） | 🔒 工具层 |
 | **MCP 安全事件可观测** | `[mcp-pin]` / `[mcp-shadow]` 事件结构化落 `mcp_security_events`（含 server/tool/哈希摘要/时间，保留 500 条）；`GET /api/security/mcp-events` 只读查询；Settings→MCP 页「安全事件」面板可视化 | 🔒 供应链 / 事后归因 |
 | **MCP 身份改名** | `clientInfo` / `serverInfo` `name:"artex"→"baize"`、`title:"白泽"`，消除 ARTEX 家族强指纹（MCP 握手检测） | 🔒 身份指纹 |

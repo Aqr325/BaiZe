@@ -48,6 +48,7 @@ export default function SystemSettingsPage() {
   const [browserScreenshot, setBrowserScreenshot] = React.useState(false);
   const [browserScreenshotTimestamp, setBrowserScreenshotTimestamp] = React.useState(false);
   const [opsecEnabled, setOpsecEnabled] = React.useState(false);
+  const [untrustedMarking, setUntrustedMarking] = React.useState(true);
   const [settingQuery, setSettingQuery] = React.useState("");
   const [activeCategory, setActiveCategory] = React.useState("system");
   const [agentTrafficBinding, setAgentTrafficBinding] = React.useState(false);
@@ -130,6 +131,7 @@ export default function SystemSettingsPage() {
     setBrowserScreenshot(!!s.browser_screenshot_enabled);
     setBrowserScreenshotTimestamp(!!s.browser_screenshot_timestamp_enabled);
     setOpsecEnabled(!!s.opsec_enabled);
+    setUntrustedMarking(s.untrusted_marking !== false);
     setAgentTrafficBinding(!!s.agent_traffic_binding);
     setWebSearch(!!s.web_search_enabled);
     setBackend(s.web_search_backend || "ddgs");
@@ -322,6 +324,22 @@ export default function SystemSettingsPage() {
       })
       .catch((e) => {
         setOpsecEnabled(!v);
+        toast.error(t("settings.saveFailed", { message: localizedError(e, t) }));
+      })
+      .finally(() => setSaving(false));
+  };
+
+  const toggleUntrustedMarking = (v: boolean) => {
+    setUntrustedMarking(v);
+    setSaving(true);
+    api
+      .setSettings({ untrusted_marking: v })
+      .then((s) => {
+        apply(s);
+        toast.success(v ? t("settings.untrustedEnabled") : t("settings.untrustedDisabled"));
+      })
+      .catch((e) => {
+        setUntrustedMarking(!v);
         toast.error(t("settings.saveFailed", { message: localizedError(e, t) }));
       })
       .finally(() => setSaving(false));
@@ -882,6 +900,20 @@ export default function SystemSettingsPage() {
                     checked={opsecEnabled}
                     disabled={!loaded || saving}
                     onCheckedChange={toggleOpsec}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-4 py-3 last:pb-0">
+                  <div className="min-w-0">
+                    <Label htmlFor="untrusted-marking" className="text-sm font-medium">
+                      {t("settings.untrustedMarking")}
+                    </Label>
+                    <p className="text-muted-foreground mt-1 text-xs">{t("settings.untrustedMarkingHelp")}</p>
+                  </div>
+                  <Switch
+                    id="untrusted-marking"
+                    checked={untrustedMarking}
+                    disabled={!loaded || saving}
+                    onCheckedChange={toggleUntrustedMarking}
                   />
                 </div>
               </CardContent>
