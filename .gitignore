@@ -97,3 +97,6 @@ Thumbs.db
 
 # 本地 MCP 服务器实现（hexstrike-ai 等，含 .venv 依赖；seed 约定"用户自备脚本"，不进公开仓库）
 /mcp-servers/
+
+# SkillSpector 技能准入体检工具（含 .venv 依赖，本地扫描用；重装: cd tools/skillspector && uv venv --python 3.13 .venv && uv pip install -e .）
+/tools/skillspector/
