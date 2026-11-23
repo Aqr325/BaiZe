@@ -72,6 +72,13 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 		serverTools := map[string][]string{} // server name → its tool names
 		var allNames, globalNames []string
 		globalSet := map[string]bool{}
+		// Namespace isolation: tool names are `mcp__<server>__<tool>`. If two
+		// servers share a name (mcp_servers.name has no UNIQUE constraint), their
+		// tools collapse to identical full names and one silently shadows the
+		// other — a model could call the wrong server's tool. Track ownership of
+		// every full name and refuse collisions (first server wins), logging a
+		// warning so the misconfiguration is visible rather than silent.
+		toolOwner := map[string]string{} // full tool name → owning server
 		{
 			mcpIDs, _ := pg.AgentVisible(a.ID, "mcp")
 			want := idSet(mcpIDs)
@@ -102,6 +109,13 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 					// image payloads to the model or consume extra tokens.
 					if m.Name == browserMCPName && isBrowserScreenshotTool(t.Name()) &&
 						(agentKey != "reporter" || !pg.GetBool(settingBrowserScreenshot, false)) {
+						continue
+					}
+					// --- 命名空间隔离：拒绝工具全名碰撞（防跨 server 遮蔽/串台）---
+					// 两个同名 server 会把不同工具折叠成相同的 mcp__name__tool 全名；
+					// 保留先到者并告警，避免模型调用了错误 server 的工具。
+					if owner, collided := claimToolName(toolOwner, t.Name(), m.Name); collided {
+						log.Printf("[mcp-shadow] 工具全名碰撞被拒绝: name=%s 已属 server=%q, 来自 server=%q（请检查 mcp_servers.name 是否重复）", t.Name(), owner, m.Name)
 						continue
 					}
 					// --- 工具描述 hash pinning（B 类防御 · 防 Rug Pull/工具投毒）---
@@ -198,6 +212,22 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 		}
 		return extra, def, cleanup
 	}
+}
+
+// claimToolName records ownership of a fully-qualified MCP tool name. It returns
+// the previous owner and true when the name was already claimed by a different
+// server (collision). Re-claiming by the same server is idempotent and allowed —
+// a single server may legitimately list a tool name more than once across
+// refreshes, but two servers must never share one full name.
+func claimToolName(owners map[string]string, fullName, server string) (string, bool) {
+	if prev, ok := owners[fullName]; ok {
+		if prev == server {
+			return prev, false // same server re-claiming: not a cross-server shadow
+		}
+		return prev, true
+	}
+	owners[fullName] = server
+	return "", false
 }
 
 func isBrowserScreenshotTool(name string) bool {

@@ -11,6 +11,39 @@ import (
 	actool "github.com/Autumn-27/norma/tool"
 )
 
+// TestClaimToolNameIsolatesNamespaces verifies the MCP namespace guard: two
+// different servers must not be able to claim the same fully-qualified tool name
+// (which would silently shadow one server's tool with another's).
+func TestClaimToolNameIsolatesNamespaces(t *testing.T) {
+	owners := map[string]string{}
+	const full = "mcp__shared__run"
+
+	if prev, collided := claimToolName(owners, full, "server-a"); collided || prev != "" {
+		t.Fatalf("first claim: prev=%q collided=%v, want (\"\", false)", prev, collided)
+	}
+	if got := owners[full]; got != "server-a" {
+		t.Fatalf("owner after first claim = %q, want server-a", got)
+	}
+
+	// same server re-claiming is idempotent (not a shadow attack)
+	if prev, collided := claimToolName(owners, full, "server-a"); collided || prev != "server-a" {
+		t.Fatalf("same-server re-claim: prev=%q collided=%v, want (server-a, false)", prev, collided)
+	}
+
+	// a different server claiming the same full name is a collision
+	if prev, collided := claimToolName(owners, full, "server-b"); !collided || prev != "server-a" {
+		t.Fatalf("cross-server claim: prev=%q collided=%v, want (server-a, true)", prev, collided)
+	}
+	if got := owners[full]; got != "server-a" {
+		t.Fatalf("owner must stay server-a after rejected collision, got %q", got)
+	}
+
+	// distinct names from distinct servers are fine
+	if prev, collided := claimToolName(owners, "mcp__shared__list", "server-b"); collided || prev != "" {
+		t.Fatalf("distinct name: prev=%q collided=%v, want (\"\", false)", prev, collided)
+	}
+}
+
 // hasSkillTool reports whether the packed tool set contains the Skill meta-tool.
 func hasSkillTool(tools []actool.CoreTool) bool {
 	for _, t := range tools {
