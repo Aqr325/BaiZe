@@ -483,7 +483,9 @@ CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
 
 ## 内置资产清单：技能 / MCP / 工具
 
-- **技能库（skills/）**：方法论技能（如 `pentest-assistant`、`src-vuln-scanner`、`api-recon`、`scopesentry`、`playwright-cli` 等），按需加载，agent 按任务类型选用；
+- **技能库（skills/）**：方法论技能按需加载，agent 按任务类型选用。仓库内置 **7 个技能**：
+  - **原生**：`pentest-assistant`（渗透方法学）、`src-vuln-scanner`（源码漏洞扫描）、`api-recon`（API 侦察，puppeteer 运行时）、`scopesentry`（资产测绘）、`playwright-cli`（浏览器自动化）；
+  - **新增能力库（整树注册一个根技能 + `${SKILL_DIR}` 桥接，单读即用）**：`anthropic-cybersecurity`（**818 个结构化子技能**，覆盖 29 安全域，映射 MITRE ATT&CK / NIST CSF 2.0 / MITRE ATLAS / D3FEND / NIST AI RMF / MITRE F3 六大框架，Apache-2.0）、`agentic-detections`（**agentic 攻击框架检测规则库**，覆盖 ARTEX / Cairn / PentAGI / HexStrike / CyberStrikeAI / Strix / Hermes / Agent Zero / RedAmon / Xalgorix / Pentest Swarm 共 11 框架，572 个受源指标 + KQL / Sigma / Suricata / YARA / Zeek / STIX 2.1 规则，MIT）；
 - **MCP 预设**：常用外部 MCP（Playwright、FOFA 测绘、Burp 等）可一键接入，也可在系统设置中配置自定义 MCP 服务器（Streamable HTTP / SSE）；
 - **领域工具**：`http_request`（原生 HTTP 执行器，自动过 MITM 留痕）、`session_login`（五形态登录 + 任务级 cookie jar）、`record_fact` / `report_finding` / `insert_assets`、`set_goals` / `prove_goal`、`search_all_worker_traces`、`save_memory` / `recall_memories`、`delegate_task`、`record_intelligence` 等。
 
@@ -508,6 +510,9 @@ CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
 | 稳定性 | 基础 | 🔒 goroutine panic 恢复 + 生命周期 ctx 收敛 + worker 池竞态修复（`-race` 全绿） |
 | 工具链 | 基础工具 | 🛠 **httpx / katana / nuclei** 集成 + 断点恢复 + 渐进式披露 Skill + MCP 模板库 |
 | 成本控制 | 单通道 | 🛠 LLM **多通道轮询** + 单意图成本预算闸 + 调用超时重试 |
+| 技能库 | 少量原生技能 | ➕ **Anthropic Cybersecurity Skills（818 子技能 / 29 安全域 / 6 框架）** + **agentic-attack-detections（11 攻击框架检测规则）** |
+| 供应链安全 | 无 | 🔒 **依赖钉版**（api-recon 4 漏洞清零）+ **MCP 工具描述 hash pinning**（投毒 / Rug Pull 检测）+ SkillSpector 准入体检 |
+| 身份指纹 | 固定 ARTEX | 🔒 **MCP 身份可改名**（clientInfo / serverInfo `name` 可配）+ **登录用户名可配置**（消除 ARTEX 强指纹） |
 
 ### ➕ 新增能力（上游没有）
 
@@ -522,7 +527,23 @@ CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
 - **认证与密钥**：认证限流 + JWT 版本撤销（改密即旧 token 失效）+ 请求体上限 + putSettings 原子化 + CORS 白名单；
 - **网络防护**：SSRF 逐跳防护（`CheckRedirect` 每跳校验字面 / 解析后 IP）+ 符号链接防护 + 反代 token 清洗；
 - **提示词安全**：记忆投毒**确定性过滤**——不可信数据沉淀前做凭据 / 指令正则过滤 + 数据边界标记，不依赖 LLM 软约束；
-- **稳定性**：后台 goroutine panic 恢复、生命周期 ctx 收敛、worker 池竞态修复（`-race` 全绿）。
+- **稳定性**：后台 goroutine panic 恢复、生命周期 ctx 收敛、worker 池竞态修复（`-race` 全绿）；
+- **智能体攻击面防御**：MCP 工具描述 **hash pinning**（投毒 / Rug Pull 检测）+ MCP 身份改名 + 登录用户名可配置 + 依赖钉版（详见下节「🛡 智能体攻击面防御」）。
+
+### 🛡 智能体攻击面防御（对照 33 真实案例 + 自指纹审计落地）
+
+对照《[智能体攻击典型事例深度剖析：33 个真实案例的攻击链、影响与防御映射](https://mp.weixin.qq.com/s/KIdQsEJRx0InZ4rdycTeww)》与 agentic-attack-detections 自指纹审计，白泽已落地以下防御（**B 类：让一次错误无法变成一次事故**）：
+
+| 落地项 | 说明 | 类别 |
+|---|---|---|
+| **MCP 工具描述 hash pinning** | 连接 MCP 后对每个工具描述算 sha256，基线存 `settings(mcp_tool_desc_hash:<server>:<tool>)`；变更记 `[mcp-pin]` 告警（疑似 Rug Pull / 投毒）。用现有 settings 表，无表结构变更 | 🔒 供应链 / 投毒可观测 |
+| **MCP 身份改名** | `clientInfo` / `serverInfo` `name:"artex"→"baize"`、`title:"白泽"`，消除 ARTEX 家族强指纹（MCP 握手检测） | 🔒 身份指纹 |
+| **登录用户名可配置** | `auth.go` 读 `settings(auth_username)` 覆盖默认 ARTEX；保留时序侧信道防护一致性；新增 `GET /api/auth/config`，前端登录页 / 改密弹窗从配置读显示 | 🔒 身份指纹 |
+| **依赖钉版** | `api-recon` 的 `puppeteer-core ^23.11.1→25.18.1`（`--save-exact`），`ip-address`/`basic-ftp`/`extract-zip` 移出依赖树、`zod 3.23.8→4.6.7`；`npm audit` = **0 vulnerabilities** | 🔒 供应链 |
+| **双技能库** | `anthropic-cybersecurity`（818 子技能）+ `agentic-detections`（11 攻击框架检测，含 ARTEX 家族→可检测白泽自身） | ➕ 检测能力 |
+| **准入体检** | SkillSpector 非递归扫描 skills/，核对依赖漏洞与投毒；第三方无 LICENSE 库（cyber-monster）不入公开仓库 | 🔒 供应链准入 |
+
+> ⚠️ 自指纹审计结论：白泽已规避前端 / UA / 信封类指纹，仍保留服务端核心指纹（登录名、MCP clientInfo、工具函数名）——本分支将 **MCP 身份与登录名改为可配置** 后，剩余可观察指纹进一步收敛。
 
 ### 🛠 工程增强
 
