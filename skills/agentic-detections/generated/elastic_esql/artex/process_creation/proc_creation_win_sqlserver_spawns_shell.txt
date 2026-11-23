@@ -1,0 +1,3 @@
+# SQL Server Spawns a Shell Through xp_cmdshell
+# Sigma id 5a82242d-3e20-5373-9852-830e386a2253, pipeline ecs
+from * metadata _id, _index, _version | where ends_with(process.parent.executable.caseless, "\\sqlservr.exe") and (ends_with(process.executable.caseless, "\\cmd.exe") or ends_with(process.executable.caseless, "\\powershell.exe") or ends_with(process.executable.caseless, "\\pwsh.exe") or ends_with(process.executable.caseless, "\\certutil.exe") or ends_with(process.executable.caseless, "\\bitsadmin.exe"))

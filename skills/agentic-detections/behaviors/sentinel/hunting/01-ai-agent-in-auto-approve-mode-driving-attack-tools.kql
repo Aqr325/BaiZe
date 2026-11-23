@@ -1,0 +1,59 @@
+// An AI agent driving attack tools
+// Agentic attack detections by ThreatDefence (cross-framework behavior, first written for Cairn). Source: https://github.com/ThreatDefence/agentic-attack-detections
+// Example hunt for Defender XDR advanced hunting. Test and baseline before alerting.
+// Agent CLIs run shell commands for the model. What ties an attack tool to an agent is the process tree:
+//  - Claude Code runs every command through its own shell. On Linux and macOS that is
+//    zsh -c source ~/.claude/shell-snapshots/snapshot-<shell>-<time>-<id>.sh ..., and on Windows a PowerShell launcher
+//    named in CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT. The tool's parent is that shell, not the agent.
+//  - Qwen Code, Kimi CLI, Codex, opencode and Pi run <shell> -c <command>, so the agent is the tool's grandparent.
+//  - Agents installed with npm or pip run under node or python, so the agent is found by its command line.
+// The model behind the agent is usually DeepSeek, Qwen, GLM or Kimi, and it does not matter here.
+// Auto-approve flags (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox,
+// qwen or kimi --yolo, --auto-approve) are shown in the AutoApprove column and are not a filter. On real telemetry
+// they were common on staff machines, and an agent ran nmap with no flag at all, so the flag neither finds an
+// attacker nor clears a colleague. The attack tool carries the signal: review who ran it and against what.
+let Window = 30d;
+let AttackTools = dynamic(["nmap", "naabu", "masscan", "nuclei", "katana", "dalfox", "ffuf", "gobuster", "feroxbuster",
+    "dirsearch", "nikto", "sqlmap", "wpscan", "hydra", "medusa", "kerbrute", "netexec", "nxc", "crackmapexec",
+    "bloodyad", "coercer", "enum4linux-ng", "chisel", "pwncat", "pwncat-cs", "evil-winrm", "responder",
+    "cloudfox", "msfconsole", "searchsploit", "hashcat"]);
+let AgentBinaries = dynamic(["claude", "codex", "qwen", "kimi", "opencode", "hermes"]);
+let AgentCommandLine = @'(?i)(@anthropic-ai[/\\]claude-code|@qwen-code[/\\]|@openai[/\\]codex|kimi[-_]cli|opencode-ai|(^"?|[/\\])(claude|codex|qwen|kimi|opencode)(\.exe|\.cmd|\.js)?"?(\s|$)|--provider cairn|model_provider="cairn"|/tmp/cairn-pi/)';
+let AutoApproveFlag = @'(--dangerously-skip-permissions|--dangerously-bypass-approvals-and-sandbox|\s--yolo\b|\s--auto-approve\b|--approval-mode[\s=]+yolo)';
+// Tools written in Python, Ruby or Perl (sqlmap, NetExec, wpscan, nikto, Metasploit and others) run as their interpreter:
+// FileName is python3.14, ruby3.3 or perl, and the tool is the script in the command line. ScriptTool finds the tool as the
+// script that runs: its path followed by an argument or at the end of the command line, or its .py or .pl file. A folder
+// or file that only has a tool name in it (src/responder/handler.py, /srv/nxcloud) does not match. The Tools column
+// shows the tool name, not the interpreter.
+let ScriptTool = @'(?i)/(sqlmap|nikto|wpscan|netexec|nxc|crackmapexec|bloodyad|coercer|evil-winrm|msfconsole|dirsearch|enum4linux-ng|pwncat|pwncat-cs|responder)(\s|$)|[/\\ ]((sqlmap|bloodyad|dirsearch|enum4linux-ng)\.py|nikto\.pl)|(^|[/\\ ])(coercer[/\\]coercer|responder[/\\]responder)\.py';
+let Tools = DeviceProcessEvents
+    | where Timestamp > ago(Window)
+    | extend Tool = replace_string(tolower(FileName), ".exe", "")
+    | extend ScriptName = iff(FileName matches regex @'(?i)^(python|ruby|perl)', tolower(extract(ScriptTool, 0, ProcessCommandLine)), "")
+    | where Tool in (AttackTools) or isnotempty(ScriptName) or ProcessCommandLine has_any ("impacket-", "ysoserial", "jwt_tool", "PayloadsAllTheThings", "/home/kali/pocs/")
+    | extend Tool = iff(isnotempty(ScriptName), trim(@'[/\\\s]+', ScriptName), Tool);
+// 1. The process tree names the agent: its own shell, or the agent binary as parent or grandparent
+let ByTree = Tools
+    | extend Via = case(
+        InitiatingProcessCommandLine contains "shell-snapshots" or InitiatingProcessCommandLine contains "CLAUDE_CODE_SHELL_LAUNCHER_SCRIPT", "Claude Code shell is the parent",
+        replace_string(tolower(InitiatingProcessFileName), ".exe", "") in (AgentBinaries), strcat(InitiatingProcessFileName, " is the parent"),
+        replace_string(tolower(InitiatingProcessParentFileName), ".exe", "") in (AgentBinaries), strcat(InitiatingProcessParentFileName, " is the grandparent"),
+        "")
+    | where isnotempty(Via)
+    | extend AgentCmd = InitiatingProcessCommandLine;
+// 2. Agents that run under node, python or bun: find the agent by its command line, then its children and grandchildren
+let Agents = DeviceProcessEvents
+    | where Timestamp > ago(Window)
+    | where ProcessCommandLine matches regex AgentCommandLine
+    | project DeviceId, AgentPid=ProcessId, AgentTime=Timestamp, AgentCmd=ProcessCommandLine;
+let ByAgentProcess = Tools
+    | join kind=inner Agents on DeviceId
+    | where Timestamp between (AgentTime .. (AgentTime + 7d)) and (InitiatingProcessParentId == AgentPid or InitiatingProcessId == AgentPid)
+    | summarize arg_max(AgentTime, AgentCmd) by DeviceId, DeviceName, AccountName, Timestamp, FileName, Tool, ProcessCommandLine, ProcessId
+    | extend Via = "agent found by its command line";
+union ByTree, ByAgentProcess
+| summarize Tools=make_set(Tool, 20), Commands=make_set(substring(ProcessCommandLine, 0, 200), 15),
+    FirstTool=min(Timestamp), LastTool=max(Timestamp), Via=make_set(Via, 5), AgentCmds=make_set(substring(AgentCmd, 0, 300), 5)
+    by DeviceName, AccountName
+| extend AutoApprove = tostring(AgentCmds) matches regex AutoApproveFlag, CairnMarker = tostring(AgentCmds) contains "cairn"
+| order by CairnMarker desc, array_length(Tools) desc

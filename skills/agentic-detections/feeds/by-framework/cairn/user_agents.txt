@@ -1,0 +1,1 @@
+Claude-User (claude-code/2.1.98; +https://support.anthropic.com/)

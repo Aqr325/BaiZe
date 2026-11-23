@@ -1,0 +1,68 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install tools
+        run: |
+          pip install -r tools/requirements.txt
+          sudo apt-get update
+          sudo apt-get install -y suricata
+      - name: Test IOC confidence, expiry and SID policy
+        run: python3 -m unittest discover -s tests/feeds -p 'test_*.py' -v
+      - name: Validate rules, queries and feeds
+        run: python tools/validate.py
+      - name: Check Sigma rules against test events
+        run: python tests/sigma/run_tests.py
+      - name: Start the Kusto emulator
+        run: docker run -d --name kusto -e ACCEPT_EULA=Y -p 8080:8080 mcr.microsoft.com/azuredataexplorer/kustainer-linux:latest
+      - name: Run hunts and analytics against sample rows
+        run: python tests/kql/run_tests.py --require --wait 180
+      - name: Replay test flows through Suricata
+        run: python tests/suricata/run_tests.py
+      - name: Convert Sigma to Splunk, Sentinel and Elastic
+        run: python tools/convert.py
+      - name: Check generated conversions are committed
+        run: git diff --exit-code generated/ || (echo "Run tools/convert.py and commit generated/" && exit 1)
+      - name: Build WAF rules and check they are committed
+        run: |
+          python tools/build_waf.py
+          git diff --exit-code waf/ || (echo "Run tools/build_waf.py and commit waf/" && exit 1)
+      - name: Test WAF rules on Cloudflare, AWS WAF and Azure WAF
+        run: python tests/waf/run_tests.py
+      - name: Lint the CloudFormation template
+        run: cfn-lint waf/aws/cloudformation.yaml
+      - name: Build the release files and load the combined Suricata rules
+        run: |
+          python tools/build_release.py --out dist
+          (cd dist && sha256sum -c SHA256SUMS.txt)
+          suricata -T -S dist/agentic-attack-detections.rules -l /tmp --init-errors-fatal --set unix-command.enabled=no
+
+  waf-iac:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+      - name: Validate Terraform
+        run: |
+          for dir in waf/cloudflare/terraform waf/aws/terraform; do
+            terraform -chdir=$dir init -backend=false -input=false
+            terraform -chdir=$dir validate
+          done
+      - name: Compile Bicep
+        run: |
+          az bicep install
+          for f in waf/azure/*.bicep; do
+            az bicep build --file "$f" --stdout > /dev/null 2> bicep.log || { cat bicep.log; exit 1; }
+            cat bicep.log
+            if grep -qi warning bicep.log; then echo "Bicep warnings in $f"; exit 1; fi
+          done

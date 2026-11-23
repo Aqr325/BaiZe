@@ -1,0 +1,272 @@
+#!/usr/bin/env python3
+"""Build every indicator feed from iocs/indicators.csv, the single source of truth for all frameworks.
+
+    python3 tools/build_feeds.py
+
+Each row names the framework(s) it belongs to in the "framework" column (space separated, for example "artex cairn").
+
+Writes:
+    feeds/ipv4.txt, ipv6.txt, domains.txt, urls.txt, user_agents.txt, sha256.txt, md5.txt   plain lists for all frameworks,
+                                                                         medium and high confidence only
+    feeds/by-framework/<framework>/*.txt                                 the same lists per framework
+    feeds/sentinel-watchlist.csv      Microsoft Sentinel watchlist (alias AGENTIC_IOCs, search key "value")
+    feeds/stix2.1-bundle.json         STIX 2.1 bundle: indicators, one tool per framework and the actors
+    frameworks/<framework>/zeek/intel/<framework>.intel      Zeek Intel framework file
+    frameworks/<framework>/suricata/<framework>-ip.rules     Suricata rules for the reported addresses
+    frameworks/artex/splunk/lookups/artex_iocs.csv           Splunk lookup used by the ARTEX Splunk app
+
+Standard library only, so it runs anywhere Python 3.9+ does.
+"""
+import csv
+import re
+import datetime as dt
+import hashlib
+import json
+import uuid
+from collections import defaultdict
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SRC = ROOT / "iocs" / "indicators.csv"
+NOW = "2026-11-21T00:00:00.000Z"
+# Stable release cutoff, synchronized with waf/signatures.yaml.
+# Wall-clock time must not make feed regeneration non-reproducible.
+ACTIVE_AS_OF = "2026-11-23"
+CONFIDENCE_RANK = {"low": 0, "medium": 1, "high": 2}
+NS = uuid.UUID("5b2d4b5e-6c3a-4f0e-9a1e-7d8c2f3a4b10")  # fixed namespace so STIX ids stay stable between builds
+
+FRAMEWORKS = {
+    "artex": {"name": "ARTEX", "sid": 3800500, "created": "2026_11_20",
+              "aliases": ["ScopeWeaver", "LUCK", "Guanlan SEC", "ARTEX PRO", "AntiFox"],
+              "description": "Open-source agentic AI penetration testing framework published by Autumn-27 in July 2026 and abused in real intrusions.",
+              "own_actor": "ARTEX operators"},
+    "cairn": {"name": "Cairn", "sid": 3801500, "created": "2026_11_21",
+              "aliases": ["oritera/Cairn"],
+              "description": "Open-source agentic problem-solving engine (oritera/Cairn, April 2026) that drives Claude Code, Codex and Pi coding agents in Kali containers; abused for web intrusions and payment-card theft since mid-2026.",
+              "own_actor": "Cairn operators"},
+    "pentagi": {"name": "PentAGI", "sid": 3802500, "created": "2026_11_21",
+                "aliases": ["vxcontrol/pentagi", "Penetration Testing Artificial General Intelligence"],
+                "description": "Open-source and commercial multi-agent penetration testing platform by VXControl that runs its tools in Kali Linux containers; abused in the wild since at least August 2026.",
+                "own_actor": "PentAGI operators"},
+    "hexstrike": {"name": "HexStrike", "sid": 3803500, "created": "2026_11_21",
+                  "aliases": ["HexStrike AI", "0x4m4/hexstrike-ai"],
+                  "description": "Open-source MCP tool server that exposes about 150 security tools to any AI assistant over an unauthenticated HTTP API; discussed for NetScaler exploitation in 2025 and seen by GTIG and Mandiant in intrusions.",
+                  "own_actor": "HexStrike operators"},
+    "cyberstrikeai": {"name": "CyberStrikeAI", "sid": 3804500, "created": "2026_11_21",
+                      "aliases": ["AIPentest/CyberStrikeAI", "Ed1s0nZ/CyberStrikeAI", "DarkAI"],
+                      "description": "Open-source Go operator console (Ed1s0nZ, later AIPentest, November 2025) whose AI agents run about 90 security tools and which builds its own implants, C2 listeners and webshell manager; tied to the FortiGate mass-exploitation infrastructure, an AWS intrusion and attacks on education organizations.",
+                      "own_actor": "CyberStrikeAI operators"},
+    "strix": {"name": "Strix", "sid": 3805500, "created": "2026_11_21",
+              "aliases": ["usestrix/strix", "strix-agent"],
+              "description": "Open-source Python AI penetration testing agent (usestrix/strix, August 2025) that runs teams of agents in a Kali sandbox container through a Caido proxy; used for vulnerability discovery in the 2026 retail card-theft campaign before Cairn exploitation.",
+              "own_actor": "Strix operators"},
+    "hermes": {"name": "Hermes Agent", "sid": 3806500, "created": "2026_11_21",
+               "aliases": ["NousResearch/hermes-agent", "Hermes"],
+               "description": "Open-source general-purpose AI agent from Nous Research with persistent memory, self-written skills, a SOUL.md persona, a Telegram gateway and a yolo mode; used as the attack console by knaithe/KnYuan, the Gambit retail card-theft operator, the Carbonato Docker botnet and against Thailand's Ministry of Finance.",
+               "own_actor": "Hermes Agent operators"},
+    "agent-zero": {"name": "Agent Zero", "sid": 3807500, "created": "2026_11_21",
+                   "aliases": ["agent0ai/agent-zero", "AgentZero"],
+                   "description": "Open-source general-purpose AI agent framework that runs in a Kali-based container with a built-in hacker profile and a web UI; GTIG reported threat-actor experimentation with it in 2026.",
+                   "own_actor": "Agent Zero operators"},
+    "redamon": {"name": "RedAmon", "sid": 3808500, "created": "2026_11_23",
+                "aliases": ["samugit83/redamon"],
+                "description": "Open-source self-hosted penetration testing platform (samugit83/redamon, December 2025): a Docker stack with a web console, a recon pipeline and an agent that exploits from a Kali sandbox with Metasploit; no public report of use in an intrusion.",
+                "own_actor": "RedAmon operators"},
+    "xalgorix": {"name": "Xalgorix", "sid": 3809500, "created": "2026_11_23",
+                 "aliases": ["xalgorix/xalgorix", "xalgord/xalgorix"],
+                 "description": "Open-source Go binary with a web dashboard (xalgorix/xalgorix, March 2026) whose agent runs a web and API penetration test without approval steps and re-exploits each finding; no public report of use in an intrusion.",
+                 "own_actor": "Xalgorix operators"},
+    "pentestswarm": {"name": "Pentest Swarm AI", "sid": 3810500, "created": "2026_11_23",
+                     "aliases": ["Armur-Ai/Pentest-Swarm-AI", "pentestswarm"],
+                     "description": "Open-source Go command-line tool (Armur-Ai/Pentest-Swarm-AI, 2026) that runs recon, exploit and report agents over about 40 security tools; no public report of use in an intrusion.",
+                     "own_actor": "Pentest Swarm AI operators"},
+}
+ZEEK_TYPES = {"ipv4": "Intel::ADDR", "ipv6": "Intel::ADDR", "md5": "Intel::FILE_HASH", "domain": "Intel::DOMAIN", "user_agent": "Intel::SOFTWARE", "sha256": "Intel::FILE_HASH", "url": "Intel::URL"}
+
+
+def load():
+    with SRC.open(newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def fw_of(r):
+    return r.get("framework", "").split()
+
+
+def only(rows, fw):
+    return [r for r in rows if fw in fw_of(r)]
+
+
+def write(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def active_ip(r, as_of=ACTIVE_AS_OF):
+    """Retain expired IP records in the historical CSV/STIX, not active feeds."""
+    if r["type"] not in ("ipv4", "ipv6"):
+        return True
+    return not r.get("review_by") or r["review_by"] >= as_of
+
+
+def plain_lists(rows, folder):
+    for kind, name in [("ipv4", "ipv4.txt"), ("ipv6", "ipv6.txt"), ("domain", "domains.txt"), ("user_agent", "user_agents.txt"), ("sha256", "sha256.txt"), ("md5", "md5.txt"), ("url", "urls.txt")]:
+        # Low-confidence rows stay out of the plain lists: many are legitimate services (AI model APIs, callback and
+        # lookup services) that only mean something with their context, which a bare list cannot carry. They remain
+        # in indicators.csv, the Sentinel watchlist, the STIX bundle and the Zeek intel files.
+        values = sorted({r["value"] for r in rows if r["type"] == kind and r["confidence"] != "low" and active_ip(r)})
+        write(folder / name, "\n".join(values) + "\n")
+
+
+def table_csv(rows, path, cols):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+
+
+def zeek_intel(rows, fw):
+    label = FRAMEWORKS[fw]["name"]
+    lines = ["#fields\tindicator\tindicator_type\tmeta.source\tmeta.desc\tmeta.url"]
+    for r in rows:
+        if not active_ip(r):
+            continue
+        t = "Intel::SUBNET" if r["type"] == "ipv4" and "/" in r["value"] else ZEEK_TYPES.get(r["type"])
+        if not t:
+            continue
+        desc = f"{label} {r['confidence']}: {r['context']} ({r['actor']})".replace("\t", " ")
+        value = r["value"].split("://", 1)[-1] if r["type"] == "url" else r["value"]  # Zeek URLs carry no scheme
+        lines.append("\t".join([value, t, f"threatdefence-{fw}", desc, r["source_url"]]))
+    write(ROOT / "frameworks" / fw / "zeek" / "intel" / f"{fw}.intel", "\n".join(lines) + "\n")
+
+
+def suricata_ip(rows, fw):
+    meta = FRAMEWORKS[fw]
+    label = meta["name"]
+    by_actor = defaultdict(list)
+    for r in rows:
+        if r["type"] in ("ipv4", "ipv6"):
+            by_actor[(r["actor"], r["context"])].append(r)
+    out = ["# Generated by tools/build_feeds.py from iocs/indicators.csv. Do not edit by hand.",
+           f"# Reported {label} addresses. Overdue IPs omitted as of {ACTIVE_AS_OF}; historical rows remain in CSV/STIX."]
+    sid = meta["sid"]
+    for (actor, ctx), entries in sorted(by_actor.items()):
+        active = [r for r in entries if active_ip(r)]
+        if not active:
+            # Preserve the historical pair so later groups retain their SIDs.
+            sid += 2
+            continue
+        group = "[" + ",".join(sorted({r["value"] for r in active})) + "]"
+        # An entire mixed-confidence rule must not claim higher confidence
+        # than its least-supported member.
+        confidence = min((r["confidence"] for r in active), key=CONFIDENCE_RANK.__getitem__).title()
+        classtype = "misc-activity" if confidence == "Low" else "trojan-activity"
+        msg = f"TD {label} reported address, {actor}, {ctx}".replace(";", ",").replace('"', "'")
+        out.append(f'alert ip $HOME_NET any -> {group} any (msg:"{msg} (outbound)"; classtype:{classtype}; sid:{sid}; rev:2; metadata:created_at {meta["created"]}, confidence {confidence};)')
+        out.append(f'alert ip {group} any -> $HOME_NET any (msg:"{msg} (inbound)"; classtype:{classtype}; sid:{sid + 1}; rev:2; metadata:created_at {meta["created"]}, confidence {confidence};)')
+        sid += 2
+    write(ROOT / "frameworks" / fw / "suricata" / f"{fw}-ip.rules", "\n".join(out) + "\n")
+
+def sid_for(kind, value):
+    return f"{kind}--{uuid.uuid5(NS, kind + ':' + value)}"
+
+
+def stix_pattern(r):
+    v = r["value"].replace("\\", "\\\\").replace("'", "\\'")
+    return {
+        "ipv4": f"[ipv4-addr:value = '{v}']",
+        "domain": f"[domain-name:value = '{v}']",
+        "user_agent": f"[network-traffic:extensions.'http-request-ext'.request_header.'User-Agent' = '{v}']",
+        "ipv6": f"[ipv6-addr:value = '{v}']",
+        "sha256": f"[file:hashes.'SHA-256' = '{v}']",
+        "md5": f"[file:hashes.MD5 = '{v.lower()}']",
+        "file_name": f"[file:name LIKE '{v}%']",
+        "file_path": f"[directory:path = '{v}']",
+        "uri_string": f"[url:value LIKE '%{v}%']",
+        "url": f"[url:value = '{v}']",
+        "account_name": f"[user-account:account_login LIKE '%{v}%']",
+    }.get(r["type"])
+
+
+def stix(rows):
+    identity = {"type": "identity", "spec_version": "2.1", "id": sid_for("identity", "ThreatDefence"), "created": NOW, "modified": NOW,
+                "name": "ThreatDefence", "identity_class": "organization"}
+    tools = {}
+    for fw, meta in FRAMEWORKS.items():
+        tools[fw] = {"type": "tool", "spec_version": "2.1", "id": sid_for("tool", meta["name"]), "created": NOW, "modified": NOW,
+                     "name": meta["name"], "aliases": meta["aliases"], "description": meta["description"],
+                     "tool_types": ["exploitation", "vulnerability-scanning"]}
+    objects = [identity] + list(tools.values())
+    own = tuple(m["own_actor"] for m in FRAMEWORKS.values()) + ("Related", "Unknown", "Unattributed")
+    actors, uses = {}, set()
+    for r in rows:
+        a = r["actor"]
+        if a and not a.startswith(own):
+            actors.setdefault(a, {"type": "intrusion-set", "spec_version": "2.1", "id": sid_for("intrusion-set", a), "created": NOW, "modified": NOW, "name": a})
+            for fw in fw_of(r):
+                uses.add((a, fw))
+    objects += actors.values()
+    for a, fw in sorted(uses):
+        name = actors[a]["name"]
+        objects.append({"type": "relationship", "spec_version": "2.1", "id": sid_for("relationship", name + "-uses-" + fw),
+                        "created": NOW, "modified": NOW, "relationship_type": "uses", "source_ref": actors[a]["id"], "target_ref": tools[fw]["id"]})
+    for r in rows:
+        pat = stix_pattern(r)
+        if not pat:
+            continue
+        ind = {"type": "indicator", "spec_version": "2.1", "id": sid_for("indicator", r["type"] + r["value"]),
+               "created": NOW, "modified": NOW, "created_by_ref": identity["id"],
+               "name": f"{' and '.join(FRAMEWORKS[f]['name'] for f in fw_of(r))} {r['type']}: {r['value']}", "description": f"{r['context']}. Reported by {r['source']}.",
+               "indicator_types": ["malicious-activity"] if r["confidence"] != "low" else ["anomalous-activity"],
+               "pattern": pat, "pattern_type": "stix", "valid_from": f"{r['reported']}T00:00:00Z",
+               "confidence": {"high": 85, "medium": 60, "low": 30}[r["confidence"]],
+               "labels": fw_of(r) + [r["confidence"]],
+               "external_references": [{"source_name": r["source"], "url": r["source_url"]}]}
+        if r.get("review_by"):
+            ind["valid_until"] = f"{r['review_by']}T00:00:00Z"
+        objects.append(ind)
+        targets = [actors[r["actor"]]] if r["actor"] in actors else [tools[f] for f in fw_of(r)]
+        for target in targets:
+            objects.append({"type": "relationship", "spec_version": "2.1", "id": sid_for("relationship", ind["id"] + target["id"]),
+                            "created": NOW, "modified": NOW, "relationship_type": "indicates", "source_ref": ind["id"], "target_ref": target["id"]})
+    digest = hashlib.sha256(json.dumps(objects, sort_keys=True).encode()).hexdigest()
+    bundle = {"type": "bundle", "id": f"bundle--{uuid.uuid5(NS, digest)}", "objects": objects}
+    write(ROOT / "feeds" / "stix2.1-bundle.json", json.dumps(bundle, indent=1, ensure_ascii=False) + "\n")
+    return sum(1 for o in objects if o["type"] == "indicator")
+
+
+def main():
+    rows = load()
+    seen = set()
+    for r in rows:
+        key = (r["type"], r["value"])
+        if key in seen:
+            raise SystemExit(f"duplicate indicator {key}")
+        seen.add(key)
+        if r["confidence"] not in ("high", "medium", "low"):
+            raise SystemExit(f"bad confidence for {key}")
+        if r.get("review_by"):
+            dt.date.fromisoformat(r["review_by"])
+        hash_len = {"md5": 32, "sha256": 64}.get(r["type"])
+        if hash_len and not re.fullmatch(f"[0-9a-fA-F]{{{hash_len}}}", r["value"]):
+            raise SystemExit(f"{r['type']} must be {hash_len} hex characters: {key}")
+        dt.date.fromisoformat(r["reported"])
+        bad = [f for f in fw_of(r) if f not in FRAMEWORKS]
+        if not fw_of(r) or bad:
+            raise SystemExit(f"unknown or missing framework for {key}: {r.get('framework')!r}")
+    cols = ["value", "type", "confidence", "context", "actor", "source", "source_url", "reported", "review_by", "framework"]
+    plain_lists(rows, ROOT / "feeds")
+    table_csv(rows, ROOT / "feeds" / "sentinel-watchlist.csv", cols)
+    for fw in FRAMEWORKS:
+        sub = only(rows, fw)
+        plain_lists(sub, ROOT / "feeds" / "by-framework" / fw)
+        zeek_intel(sub, fw)
+        suricata_ip(sub, fw)
+    table_csv(only(rows, "artex"), ROOT / "frameworks" / "artex" / "splunk" / "lookups" / "artex_iocs.csv", cols[:-1])
+    n = stix(rows)
+    print(f"{len(rows)} indicators, {n} STIX indicators, feeds written")
+
+
+if __name__ == "__main__":
+    main()
