@@ -192,7 +192,27 @@ func (w *Worker) SetProxyProvider(fn func() string) { w.proxyAddrFn = fn }
 // SetWebSearch selects the web_search backend for this worker (off by default).
 func (w *Worker) SetWebSearch(o WebSearchOpts) { w.webSearch = o }
 
-// proxyEnv builds the Bash-subprocess env that routes child-command HTTP through
+// sensitiveEnvMask returns "KEY=" overrides for platform secrets so a lured
+// Worker cannot read them via `env` / `printenv` in a Bash subprocess and exfil
+// them to an anti-honeypot listener (Blacksea/AgentCapture pattern: "untrusted
+// lure → local secret read → outbound send"). Bash subprocess env is built by
+// norma as append(os.Environ(), BashEnv...) and os/exec dedups by key keeping
+// the LAST occurrence, so appending "KEY=" blanks the inherited value — no SDK
+// change needed. This is defense-in-depth on top of the Judge/Guard rules: even
+// if a crafted command slips past matching, there is no platform secret to leak.
+//
+// Scope: exact platform keys + common secret suffixes. Deliberately NOT a full
+// env allowlist (that would break PATH/HOME/locale the toolchain relies on).
+// BashEnv always carries these overrides, even when there is no egress proxy.
+func sensitiveEnvMask() []string {
+	return []string{
+		"ARTEX_PG_DSN=", "ARTEX_MASTER_KEY=", // platform DB DSN + secret-encryption master key
+		"ANTHROPIC_API_KEY=", "OPENAI_API_KEY=", // LLM provider keys read by agent/provider.go
+	}
+}
+
+// proxyEnv builds the Bash-subprocess env: it ALWAYS blanks platform secrets
+// (see sensitiveEnvMask), and additionally routes child-command HTTP through
 // the egress proxy (the recording MITM when capture is on, or the global proxy
 // directly when it is off) and, only when a MITM CA is present, makes the common
 // toolchain trust it — so tools need no manual -x/--proxy/-k. Each ecosystem reads
@@ -201,17 +221,17 @@ func (w *Worker) SetWebSearch(o WebSearchOpts) { w.webSearch = o }
 // GIT_SSL_CAINFO→git, NODE_EXTRA_CA_CERTS→node; NODE_USE_ENV_PROXY makes Node 24+
 // honor the proxy vars. ALL_PROXY is set too so a socks5 egress proxy (which curl
 // only reads from ALL_PROXY, not HTTP(S)_PROXY) works in the capture-off path.
-// Empty proxyAddr → nil (direct, unchanged env).
 func proxyEnv(proxyAddr, caCert string) []string {
+	env := sensitiveEnvMask() // always present, so withEnv never inherits raw secrets
 	if proxyAddr == "" {
-		return nil
+		return env
 	}
-	env := []string{
-		"HTTP_PROXY=" + proxyAddr, "HTTPS_PROXY=" + proxyAddr,
-		"http_proxy=" + proxyAddr, "https_proxy=" + proxyAddr,
-		"ALL_PROXY=" + proxyAddr, "all_proxy=" + proxyAddr, // socks5 egress: curl reads only this
+	env = append(env,
+		"HTTP_PROXY="+proxyAddr, "HTTPS_PROXY="+proxyAddr,
+		"http_proxy="+proxyAddr, "https_proxy="+proxyAddr,
+		"ALL_PROXY="+proxyAddr, "all_proxy="+proxyAddr, // socks5 egress: curl reads only this
 		"NODE_USE_ENV_PROXY=1", // Node 24+: honor HTTP(S)_PROXY in built-in fetch/http
-	}
+	)
 	if caCert != "" {
 		env = append(env,
 			"SSL_CERT_FILE="+caCert,

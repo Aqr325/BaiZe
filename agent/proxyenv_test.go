@@ -5,9 +5,22 @@ import (
 	"testing"
 )
 
-func TestProxyEnvEmptyIsNil(t *testing.T) {
-	if env := proxyEnv("", ""); env != nil {
-		t.Fatalf("proxyEnv(\"\", \"\") = %v, want nil (direct)", env)
+func TestProxyEnvEmptyBlanksSecretsNoEgress(t *testing.T) {
+	// Contract change (anti-honeypot hardening): no proxy no longer returns nil —
+	// the secret mask must always be present, else withEnv inherits raw DSN/keys.
+	env := proxyEnv("", "")
+	if len(env) == 0 {
+		t.Fatal("proxyEnv(\"\", \"\") returned empty — secrets would leak to Bash")
+	}
+	for _, e := range env {
+		if strings.HasPrefix(e, "HTTP_PROXY=") || strings.HasPrefix(e, "SSL_CERT_FILE=") {
+			t.Errorf("no-proxy path must not set egress/CA vars, got %q", e)
+		}
+	}
+	for _, k := range []string{"ARTEX_PG_DSN", "ARTEX_MASTER_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"} {
+		if !hasEnvEntry(env, k) {
+			t.Errorf("no-proxy path missing secret mask for %s", k)
+		}
 	}
 }
 
