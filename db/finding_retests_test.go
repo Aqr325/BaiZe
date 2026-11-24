@@ -240,3 +240,42 @@ func TestRetestFixedTriageOnlyAfterSuccessfulCompletion(t *testing.T) {
 		})
 	}
 }
+
+// TestRetestPromotesEvidenceGrade 验证复测是「远端独立验证」的正规来源:
+// reproduced/fixed 完成时升 remote_verified;inconclusive/失败/中断不升级。
+func TestRetestPromotesEvidenceGrade(t *testing.T) {
+	for _, tc := range []struct{ verdict, terminal, want string }{
+		{"reproduced", "completed", EvidenceGradeRemoteVerified},
+		{"fixed", "completed", EvidenceGradeRemoteVerified},
+		{"inconclusive", "completed", EvidenceGradeSelfClaim},
+		{"reproduced", "failed", EvidenceGradeSelfClaim},
+		{"reproduced", "stopped", EvidenceGradeSelfClaim},
+		{"", "completed", EvidenceGradeSelfClaim},
+	} {
+		t.Run(tc.verdict+"/"+tc.terminal, func(t *testing.T) {
+			d, fid := retestDB(t)
+			r, c, _, err := d.CreateFindingRetest(t.Context(), fid, "evidence grade")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := d.StartFindingRetest(t.Context(), r.ID); err != nil {
+				t.Fatal(err)
+			}
+			if tc.verdict != "" {
+				if err := d.RecordFindingRetestResult(t.Context(), c.ID, tc.verdict, "summary", "proof"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := d.FinishFindingRetest(r.ID, tc.terminal, ""); err != nil {
+				t.Fatal(err)
+			}
+			f, err := d.GetFinding(fid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if f.EvidenceGrade != tc.want {
+				t.Fatalf("grade=%s want=%s (finding=%+v)", f.EvidenceGrade, tc.want, f)
+			}
+		})
+	}
+}

@@ -17,6 +17,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { CopyButton } from "@/components/copy-button";
+import { EvidenceGradeBadge } from "@/components/evidence-grade-badge";
 import { FindingCaseMembers, FindingSeverityCounts } from "@/components/finding-case-list";
 import { Markdown } from "@/components/markdown";
 import { StatusBadge } from "@/components/status-badge";
@@ -296,6 +297,7 @@ export function FindingsTable({
                       {ui("screen.8a7bc1e3a1c1dd")}
                       {f.traffic_count ?? 0} {ui("screen.f004f1d84cf962")}
                     </Badge>
+                    <EvidenceGradeBadge grade={f.evidence_grade} dot />
                   </div>
                 </TableCell>
                 <TableCell>

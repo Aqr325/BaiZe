@@ -250,6 +250,14 @@ func (d *DB) FinishFindingRetest(id int64, status, reason string) error {
 			return err
 		}
 	}
+	// 复测是「远端独立验证」的正规来源：无论独立复现成功(reproduced)还是
+	// 复测确认已修复(fixed)，都说明该漏洞被独立验证过，证据级别升为
+	// remote_verified。inconclusive/失败/中断不升级，保持原级。
+	if finalStatus == "completed" && (verdict == "reproduced" || verdict == "fixed") {
+		if _, err := tx.Exec(`UPDATE findings SET evidence_grade=$2 WHERE id=$1 AND evidence_grade<>$2`, findingID, EvidenceGradeRemoteVerified); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
 

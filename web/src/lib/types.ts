@@ -590,6 +590,8 @@ export interface Finding {
   name?: string; // 漏洞名称;为空时展示回退到 vulnclass
   severity: Severity;
   status: FindingStatus;
+  // 证据来源分级(反蜜罐): self_claim 外部自述 / local_effect 本地效果 / remote_verified 远端独立验证
+  evidence_grade?: string;
   summary: string;
   evidence: string;
   report?: string; // 详细报告(Markdown);仅详情接口返回,列表为空

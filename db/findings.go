@@ -34,6 +34,7 @@ type DBFinding struct {
 	Worker               string
 	AssetIDs             []int64
 	Status               string
+	EvidenceGrade        string // self_claim | local_effect | remote_verified
 	Report               string // 详细报告(Markdown);仅 GetFinding 填充,列表查询不带
 	ReportConversationID *int64 `json:"report_conversation_id,omitempty"`
 	CreatedAt            time.Time
@@ -71,6 +72,50 @@ const (
 	SeverityLow      = "low"      // 低
 )
 
+// Finding evidence-grade levels (findings.evidence_grade). These rate how the
+// evidence supports the conclusion, mirroring the anti-honeypot trichotomy:
+//   - EvidenceGradeSelfClaim: only the target/page/log claims it; no independent
+//     verification. This is the DEFAULT for model-recorded findings — a model
+//     cannot self-certify independent verification, so a honeypot cannot make a
+//     false claim look remote-verified by wording alone.
+//   - EvidenceGradeLocalEffect: the worker observed a reproducible local effect
+//     (callback, command output, local reproduction) but there is no independent
+//     remote verification.
+//   - EvidenceGradeRemoteVerified: an independent remote reproduction/retest
+//     confirmed the conclusion. Only this grade is treated as an independently
+//     verified conclusion (normal review/reporting).
+const (
+	EvidenceGradeSelfClaim      = "self_claim"
+	EvidenceGradeLocalEffect    = "local_effect"
+	EvidenceGradeRemoteVerified = "remote_verified"
+)
+
+// DefaultEvidenceGrade is what a newly recorded finding gets when the caller
+// supplies nothing: the most conservative grade.
+func DefaultEvidenceGrade() string { return EvidenceGradeSelfClaim }
+
+// ValidEvidenceGrade reports whether s is a known evidence grade.
+func ValidEvidenceGrade(s string) bool {
+	switch s {
+	case EvidenceGradeSelfClaim, EvidenceGradeLocalEffect, EvidenceGradeRemoteVerified:
+		return true
+	}
+	return false
+}
+
+// ModelEvidenceGrade is the grade a model-recorded finding may claim. A model can
+// report its own observation (local_effect) or nothing (self_claim), but NEVER
+// remote_verified — only the retest/verification path may promote a finding to
+// remote_verified. Anything else falls back to the conservative default.
+func ModelEvidenceGrade(s string) string {
+	switch s {
+	case EvidenceGradeLocalEffect:
+		return EvidenceGradeLocalEffect
+	default:
+		return EvidenceGradeSelfClaim
+	}
+}
+
 // ValidSeverity reports whether s is a known severity level.
 func ValidSeverity(s string) bool {
 	switch s {
@@ -82,8 +127,18 @@ func ValidSeverity(s string) bool {
 
 // AddFinding inserts a finding into the standalone findings table. taskID and
 // nodeID may be 0 (stored as NULL). name may be "" (frontend falls back to
-// vulnclass). Returns the new finding id.
+// vulnclass). Returns the new finding id. The evidence grade defaults to the
+// conservative self_claim; callers with an explicit grade use AddFindingGrade.
 func (d *DB) AddFinding(taskID, nodeID int64, vulnclass, name, severity, summary, evidence, worker string, assetIDs []int64) (int64, error) {
+	return d.AddFindingGrade(taskID, nodeID, vulnclass, name, severity, summary, evidence, worker, DefaultEvidenceGrade(), assetIDs)
+}
+
+// AddFindingGrade is AddFinding with an explicit evidence grade. Invalid grades
+// fall back to self_claim so a mistyped value can never escalate a conclusion.
+func (d *DB) AddFindingGrade(taskID, nodeID int64, vulnclass, name, severity, summary, evidence, worker, evidenceGrade string, assetIDs []int64) (int64, error) {
+	if !ValidEvidenceGrade(evidenceGrade) {
+		evidenceGrade = DefaultEvidenceGrade()
+	}
 	aidsJSON, _ := json.Marshal(assetIDs)
 	if assetIDs == nil {
 		aidsJSON = []byte("[]")
@@ -97,17 +152,28 @@ func (d *DB) AddFinding(taskID, nodeID int64, vulnclass, name, severity, summary
 	}
 	var id int64
 	err := d.QueryRow(
-		`INSERT INTO findings (task_id, node_id, vulnclass, name, severity, summary, evidence, worker, asset_ids)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-		tid, nid, vulnclass, name, severity, summary, evidence, worker, string(aidsJSON),
+		`INSERT INTO findings (task_id, node_id, vulnclass, name, severity, summary, evidence, worker, asset_ids, evidence_grade)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+		tid, nid, vulnclass, name, severity, summary, evidence, worker, string(aidsJSON), evidenceGrade,
 	).Scan(&id)
 	return id, err
+}
+
+// SetFindingEvidenceGrade updates a finding's evidence grade. Only the retest
+// path or an explicit human decision may promote to remote_verified; this helper
+// validates the target and refuses to persist an unknown value.
+func (d *DB) SetFindingEvidenceGrade(id int64, grade string) error {
+	if !ValidEvidenceGrade(grade) {
+		return errors.New("invalid evidence grade: " + grade)
+	}
+	_, err := d.Exec(`UPDATE findings SET evidence_grade=$2 WHERE id=$1`, id, grade)
+	return err
 }
 
 // findingSelectCols is the column list (with task_description join) every finding
 // list query selects, so scanFinding stays in sync across callers.
 const findingSelectCols = `f.id, f.task_id, f.node_id, f.vulnclass, COALESCE(f.name, ''), f.severity, f.summary,
-		f.evidence, f.worker, f.asset_ids, COALESCE(f.status, 'pending'), f.created_at,
+		f.evidence, f.worker, f.asset_ids, COALESCE(f.status, 'pending'), COALESCE(f.evidence_grade, 'self_claim'), f.created_at,
 	       COALESCE(t.description, '') AS task_description, f.evidence_version, f.report_evidence_version,
 	(SELECT count(*) FROM finding_traffic_bindings b WHERE b.finding_id=f.id)`
 
@@ -122,7 +188,7 @@ func scanFindings(rows interface {
 		f := &DBFinding{}
 		var aidsJSON string
 		if err := rows.Scan(&f.ID, &f.TaskID, &f.NodeID, &f.VulnClass, &f.Name, &f.Severity,
-			&f.Summary, &f.Evidence, &f.Worker, &aidsJSON, &f.Status, &f.CreatedAt, &f.TaskDescription, &f.EvidenceVersion, &f.ReportEvidenceVersion, &f.TrafficCount); err != nil {
+			&f.Summary, &f.Evidence, &f.Worker, &aidsJSON, &f.Status, &f.EvidenceGrade, &f.CreatedAt, &f.TaskDescription, &f.EvidenceVersion, &f.ReportEvidenceVersion, &f.TrafficCount); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(aidsJSON), &f.AssetIDs)

@@ -14,6 +14,7 @@ import { FindingReproductionPanel } from "@/components/finding-reproduction-pane
 import { FindingRetestPanel } from "@/components/finding-retest-panel";
 import { FindingTrafficPanel } from "@/components/finding-traffic-panel";
 import { Markdown } from "@/components/markdown";
+import { EvidenceGradeBadge } from "@/components/evidence-grade-badge";
 import { StatusBadge } from "@/components/status-badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -195,6 +196,7 @@ function FindingDetailInner() {
             <Separator orientation="vertical" className="mx-1 h-4" />
             <StatusBadge domain="severity" value={finding.severity} dot />
             <StatusBadge domain="finding" value={finding.status} dot />
+            <EvidenceGradeBadge grade={finding.evidence_grade} dot />
             <Button
               variant="outline"
               size="sm"

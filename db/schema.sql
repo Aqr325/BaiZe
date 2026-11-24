@@ -1210,6 +1210,12 @@ ALTER TABLE findings ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pend
 ALTER TABLE findings ADD COLUMN IF NOT EXISTS name   TEXT NOT NULL DEFAULT '';
 ALTER TABLE findings ADD COLUMN IF NOT EXISTS report TEXT NOT NULL DEFAULT '';
 ALTER TABLE findings ADD COLUMN IF NOT EXISTS report_conversation_id BIGINT REFERENCES conversations(id) ON DELETE SET NULL;
+-- 证据来源分级(反蜜罐「外部自述/本地效果/远端独立验证」三分):
+-- self_claim 外部自述/页面/日志声称,无独立实证(默认,模型记录时保守);
+-- local_effect Worker 本地可复现效果,但非远端独立验证;
+-- remote_verified 远端独立复现/复测确认,只有该级才作为已独立验证结论。
+-- 取值不加 CHECK:旧库靠 ALTER 补列,统一由 db.ValidEvidenceGrade 白名单校验。
+ALTER TABLE findings ADD COLUMN IF NOT EXISTS evidence_grade TEXT NOT NULL DEFAULT 'self_claim';
 CREATE INDEX IF NOT EXISTS idx_findings_task ON findings(task_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_findings_time ON findings(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_findings_status ON findings(status, created_at DESC);

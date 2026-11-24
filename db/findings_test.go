@@ -517,3 +517,92 @@ func TestAddFindingFollowUpIntent(t *testing.T) {
 		t.Fatalf("missing source node: want ErrFindingOriginUnavailable, got %v", err)
 	}
 }
+
+// TestEvidenceGradeSemantics 验证分级常量与模型自述边界:模型最多报
+// local_effect,remote_verified 只能由复测/人工确认,模型不可自证。
+func TestEvidenceGradeSemantics(t *testing.T) {
+	if DefaultEvidenceGrade() != EvidenceGradeSelfClaim {
+		t.Fatalf("default=%q want self_claim", DefaultEvidenceGrade())
+	}
+	for _, v := range []string{EvidenceGradeSelfClaim, EvidenceGradeLocalEffect, EvidenceGradeRemoteVerified} {
+		if !ValidEvidenceGrade(v) {
+			t.Fatalf("valid grade rejected: %q", v)
+		}
+	}
+	for _, v := range []string{"", "remote", "verified", "local", "remote_verifed", "SelfClaim"} {
+		if ValidEvidenceGrade(v) {
+			t.Fatalf("invalid grade accepted: %q", v)
+		}
+	}
+	// 模型自述边界。
+	for _, tc := range []struct{ in, want string }{
+		{"", EvidenceGradeSelfClaim},
+		{EvidenceGradeLocalEffect, EvidenceGradeLocalEffect},
+		{EvidenceGradeRemoteVerified, EvidenceGradeSelfClaim}, // 模型不能自设 remote_verified
+		{"remote_verified", EvidenceGradeSelfClaim},
+		{"anything", EvidenceGradeSelfClaim},
+	} {
+		if got := ModelEvidenceGrade(tc.in); got != tc.want {
+			t.Fatalf("ModelEvidenceGrade(%q)=%q want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestAddFindingEvidenceGradePersists 验证 AddFindingGrade 持久化与 SetFindingEvidenceGrade 校验。
+func TestAddFindingEvidenceGradePersists(t *testing.T) {
+	d, err := Open(testDSN(t))
+	if err != nil {
+		t.Skipf("postgres unavailable (%v) — skipping", err)
+	}
+	defer d.Close()
+
+	// 默认(AddFinding)= self_claim。
+	fid, err := d.AddFinding(0, 0, "xss", "默认", "low", "s", "e", "w", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := d.GetFinding(fid)
+	if err != nil || f.EvidenceGrade != EvidenceGradeSelfClaim {
+		t.Fatalf("default grade=%q err=%v", f.EvidenceGrade, err)
+	}
+
+	// AddFindingGrade 显式 remote_verified 生效。
+	fid2, err := d.AddFindingGrade(0, 0, "xss", "显式", "low", "s", "e", "w", EvidenceGradeRemoteVerified, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f2, err := d.GetFinding(fid2)
+	if err != nil || f2.EvidenceGrade != EvidenceGradeRemoteVerified {
+		t.Fatalf("explicit grade=%q err=%v", f2.EvidenceGrade, err)
+	}
+
+	// 无效 grade 回退 self_claim。
+	fid3, err := d.AddFindingGrade(0, 0, "xss", "无效", "low", "s", "e", "w", "bogus", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f3, err := d.GetFinding(fid3)
+	if err != nil || f3.EvidenceGrade != EvidenceGradeSelfClaim {
+		t.Fatalf("invalid grade=%q err=%v", f3.EvidenceGrade, err)
+	}
+
+	// SetFindingEvidenceGrade:有效可改,无效拒绝。
+	if err := d.SetFindingEvidenceGrade(fid, EvidenceGradeLocalEffect); err != nil {
+		t.Fatal(err)
+	}
+	if f, _ = d.GetFinding(fid); f.EvidenceGrade != EvidenceGradeLocalEffect {
+		t.Fatalf("set grade=%q", f.EvidenceGrade)
+	}
+	if err := d.SetFindingEvidenceGrade(fid, "nonsense"); err == nil {
+		t.Fatal("invalid grade accepted by SetFindingEvidenceGrade")
+	}
+	if _, err := d.DeleteFinding(fid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.DeleteFinding(fid2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.DeleteFinding(fid3); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { FindingCaseList } from "@/components/finding-case-list";
+import { EvidenceGradeBadge } from "@/components/evidence-grade-badge";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -86,6 +87,7 @@ function Row({
           {ui("screen.8a7bc1e3a1c1dd")}
           {f.traffic_count ?? 0} {ui("screen.f004f1d84cf962")}
         </Badge>
+        <EvidenceGradeBadge grade={f.evidence_grade} dot />
         {f.assets && f.assets.length > 0 && (
           <div className="hidden shrink-0 flex-wrap justify-end gap-1 sm:flex">
             {f.assets.slice(0, 2).map((a) => (
