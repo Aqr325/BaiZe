@@ -30,6 +30,19 @@ export const messages = {
     "## 执行方法\n\n1. 先探测错误\n2. 区分盲注类型\n\n脚本放 scripts/ 目录。",
     "## Usage\n\n1. Probe for errors first\n2. Identify the blind-injection type\n\nPut helper scripts in the scripts/ directory.",
   ],
+  // Evidence grade hover text: what a grade means for the reader.
+  "evidenceGradeDescription.self_claim": [
+    "页面/日志自述，未经独立验证，需人工确认",
+    "Self-reported by the page or logs, not independently verified, needs manual confirmation",
+  ],
+  "evidenceGradeDescription.local_effect": [
+    "本地可复现效果，但未经远端独立验证",
+    "Locally reproducible effect, not independently verified remotely",
+  ],
+  "evidenceGradeDescription.remote_verified": [
+    "经远端独立复现/复测确认，可作为已独立验证结论",
+    "Independently reproduced or re-tested remotely, usable as a verified conclusion",
+  ],
   "findingReport.section.reproduction": ["复现步骤", "Reproduction steps"],
   "findingReport.section.testProcess": ["测试过程", "Test process"],
   "findingReport.section.reproductionProcess": ["复现过程", "Reproduction process"],
@@ -106,10 +119,7 @@ export const messages = {
   "auth.invalidCredentials": ["用户名或密码错误", "Incorrect username or password"],
   "auth.checking": ["正在检查登录状态…", "Checking sign-in status…"],
   "auth.login": ["登录", "Sign in"],
-  "auth.welcome": [
-    "欢迎回来，请输入密码以继续使用 白泽",
-    "Welcome back. Enter your password to continue using BaiZe.",
-  ],
+  "auth.welcome": ["欢迎回来，请输入密码以继续使用 白泽", "Welcome back. Enter your password to continue using BaiZe."],
   "auth.username": ["用户名", "Username"],
   "auth.password": ["密码", "Password"],
   "auth.enterPassword": ["请输入密码", "Enter your password"],
@@ -273,6 +283,11 @@ const statuses: Record<string, readonly (readonly [string, string, string])[]> =
     ["ignored", "忽略", "Ignored"],
     ["duplicate", "重复", "Duplicate"],
     ["risk_accepted", "风险接受", "Risk accepted"],
+  ],
+  evidenceGrade: [
+    ["self_claim", "外部自述", "External claim"],
+    ["local_effect", "本地效果", "Local effect"],
+    ["remote_verified", "远端独立验证", "Remotely verified"],
   ],
   engine: [
     ["exploring", "探索中", "Exploring"],

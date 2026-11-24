@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+
 import { evidenceGradeMeta } from "@/lib/finding-evidence";
 import { toneClasses, toneDot } from "@/lib/status";
 import { cn } from "@/lib/utils";
@@ -13,7 +15,8 @@ export function EvidenceGradeBadge({
   dot?: boolean;
   className?: string;
 }) {
-  const meta = evidenceGradeMeta(grade);
+  const { t } = useTranslation();
+  const meta = evidenceGradeMeta(grade, (key) => t(key));
   return (
     <span
       title={meta.description}
