@@ -5099,6 +5099,14 @@
   "拒绝消息（返回给模型）",
   "Denial message (returned to model)"
  ],
+ "screen.9e2f7c1a5b8d40e6": [
+  "命中即停止该方向 Worker（熔断）",
+  "Stop this work direction on hit (circuit-break)"
+ ],
+ "screen.a1b2c3d4e5f60789": [
+  "仅对反制上线/恶意外发类 deny 规则开启：命中后取消本意图并停止自动重试，已写入的事实保留。",
+  "Enable only for counter-measure/exfil deny rules: cancels this intent and disables auto-retry on hit; already-written facts are kept."
+ ],
  "screen.bcbc584d0ac2b1": [
   "审批说明（可选）",
   "Approval notes (optional)"

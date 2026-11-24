@@ -1560,6 +1560,7 @@ export interface InterceptRule {
   timeout_enabled: boolean;
   timeout_seconds: number;
   timeout_action: "deny" | "allow";
+  stop_worker: boolean;
   created_at: string;
   updated_at: string;
 }

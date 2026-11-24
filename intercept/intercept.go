@@ -76,6 +76,29 @@ func taskEmitFromCtx(ctx context.Context) func(db.Activity) {
 	return f
 }
 
+// workCancelCtxKey stores a per-work "stop" callback so the guard can halt the
+// current Worker intent when a deny rule with StopWorker fires. It is injected
+// by the engine (server/engine.go) on each work context; the callback already
+// carries the named AbortCause, so the guard package never imports agent.
+type workCancelCtxKey int
+
+const workStopCtxKey workCancelCtxKey = 3
+
+// WithWorkCancel returns a child context carrying a no-arg stop callback.
+// The engine wires it to cancel the per-intent work context (with a named cause).
+func WithWorkCancel(ctx context.Context, stop func()) context.Context {
+	if stop == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, workStopCtxKey, stop)
+}
+
+// WorkCancelFromContext returns the per-work stop callback (nil if absent).
+func WorkCancelFromContext(ctx context.Context) func() {
+	f, _ := ctx.Value(workStopCtxKey).(func())
+	return f
+}
+
 // compiledRule is an InterceptRule with the regex pre-compiled (nil for string rules).
 type compiledRule struct {
 	db.InterceptRule
@@ -314,6 +337,7 @@ type Decision struct {
 	TimeoutEnabled   bool
 	TimeoutSeconds   int
 	TimeoutAction    string // "deny" | "allow"
+	StopWorker       bool   // deny 命中后取消本意图(Worker/沙箱)并禁自动重试
 }
 
 // --- LLM fallback judge ---
@@ -620,6 +644,7 @@ func (i *Interceptor) Match(toolName string, input []byte) (Decision, bool) {
 				TimeoutEnabled: r.TimeoutEnabled,
 				TimeoutSeconds: r.TimeoutSeconds,
 				TimeoutAction:  r.TimeoutAction,
+				StopWorker:     r.StopWorker,
 			}, true
 		}
 	}

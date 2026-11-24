@@ -127,7 +127,9 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 		if g.interceptor != nil && g.interceptor.IsToolEnabled(ev.ToolName) {
 			if dec, matched := g.interceptor.Match(ev.ToolName, ev.Input); matched && dec.Action == "deny" {
 				g.interceptor.Log(ctx, convID, dec, ev.ToolName, ev.Input, "denied")
-				return g.block(ev.ToolName, systemBlockMessage(dec.Message), "")
+				res := g.block(ev.ToolName, systemBlockMessage(dec.Message), "")
+				g.maybeStopWorker(ctx, dec)
+				return res
 			}
 		}
 		switch fence.Classify(ev.ToolName, ev.Input) {
@@ -152,7 +154,9 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 	if g.hasDenyConstraint != nil && g.hasDenyConstraint() && g.interceptor != nil {
 		if dec, matched := g.interceptor.Match(ev.ToolName, ev.Input); matched && dec.Action == "deny" {
 			g.interceptor.Log(ctx, convID, dec, ev.ToolName, ev.Input, "denied")
-			return g.block(ev.ToolName, systemBlockMessage(dec.Message), "")
+			res := g.block(ev.ToolName, systemBlockMessage(dec.Message), "")
+			g.maybeStopWorker(ctx, dec)
+			return res
 		}
 		return g.askWithDecision(ctx, ev, intercept.Decision{
 			Action:   "ask",
@@ -187,7 +191,9 @@ func (g *Guard) ruleTail(ctx context.Context, ev hook.Event) hook.Result {
 	case "deny":
 		// 观测:deny 命中不阻塞审批,直接记一条 denied（历史/任务拦截页可见）。
 		g.interceptor.Log(ctx, convID, dec, ev.ToolName, ev.Input, "denied")
-		return g.block(ev.ToolName, systemBlockMessage(dec.Message), "")
+		res := g.block(ev.ToolName, systemBlockMessage(dec.Message), "")
+		g.maybeStopWorker(ctx, dec)
+		return res
 	case "allow":
 		// Record explicit rule and model approvals so review details remain auditable.
 		g.interceptor.Log(ctx, convID, dec, ev.ToolName, ev.Input, "allowed")
@@ -281,6 +287,21 @@ func (g *Guard) Attributions() map[string]int {
 		out[k] = v
 	}
 	return out
+}
+
+// maybeStopWorker implements the DENY 熔断(§3): when a deny decision carries
+// StopWorker, it cancels the current Worker intent via the per-work stop callback
+// injected by the engine (intercept.WithWorkCancel). The callback is a no-arg
+// closure that cancels the work context with agent.AbortWorkStopWorker — so the
+// guard package never imports agent (no cycle) and never touches a shared cancel
+// handle. Safe when no callback is wired (chat/tests): it is a no-op.
+func (g *Guard) maybeStopWorker(ctx context.Context, dec intercept.Decision) {
+	if !dec.StopWorker {
+		return
+	}
+	if stop := intercept.WorkCancelFromContext(ctx); stop != nil {
+		stop()
+	}
 }
 
 func (g *Guard) block(tool, reason, cmd string) hook.Result {

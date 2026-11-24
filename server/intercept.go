@@ -175,7 +175,7 @@ func (s *Server) interceptCreateRule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	rule, err := pg.CreateInterceptRule(req.Name, req.MatchTarget, req.MatchType, req.Pattern, req.Action, req.Message, req.Priority, req.Enabled, req.TimeoutEnabled, req.TimeoutSeconds, req.TimeoutAction)
+	rule, err := pg.CreateInterceptRule(req.Name, req.MatchTarget, req.MatchType, req.Pattern, req.Action, req.Message, req.Priority, req.Enabled, req.TimeoutEnabled, req.TimeoutSeconds, req.TimeoutAction, req.StopWorker)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -184,7 +184,7 @@ func (s *Server) interceptCreateRule(w http.ResponseWriter, r *http.Request) {
 	auditInterceptConfig(r, interceptConfigEvent{
 		Op:     "create_rule",
 		Target: req.Name,
-		Detail: "action=" + req.Action + " enabled=" + boolStr(req.Enabled) + " match=" + req.MatchTarget + "/" + req.MatchType,
+		Detail: "action=" + req.Action + " enabled=" + boolStr(req.Enabled) + " match=" + req.MatchTarget + "/" + req.MatchType + " stop_worker=" + boolStr(req.StopWorker),
 	})
 	writeJSON(w, 200, rule)
 }
@@ -208,7 +208,7 @@ func (s *Server) interceptUpdateRule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	rule, err := pg.UpdateInterceptRule(id, req.Name, req.MatchTarget, req.MatchType, req.Pattern, req.Action, req.Message, req.Priority, req.Enabled, req.TimeoutEnabled, req.TimeoutSeconds, req.TimeoutAction)
+	rule, err := pg.UpdateInterceptRule(id, req.Name, req.MatchTarget, req.MatchType, req.Pattern, req.Action, req.Message, req.Priority, req.Enabled, req.TimeoutEnabled, req.TimeoutSeconds, req.TimeoutAction, req.StopWorker)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -219,7 +219,7 @@ func (s *Server) interceptUpdateRule(w http.ResponseWriter, r *http.Request) {
 	ev := interceptConfigEvent{
 		Op:      "update_rule",
 		Target:  req.Name,
-		Detail:  "id=" + strconv.FormatInt(id, 10) + " action=" + req.Action + " enabled=" + boolStr(req.Enabled),
+		Detail:  "id=" + strconv.FormatInt(id, 10) + " action=" + req.Action + " enabled=" + boolStr(req.Enabled) + " stop_worker=" + boolStr(req.StopWorker),
 		Degrade: degrade,
 	}
 	if degrade {
@@ -645,6 +645,7 @@ type interceptRuleReq struct {
 	TimeoutEnabled bool   `json:"timeout_enabled"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	TimeoutAction  string `json:"timeout_action"`
+	StopWorker     bool   `json:"stop_worker"`
 }
 
 func validateInterceptRuleReq(req interceptRuleReq) error {

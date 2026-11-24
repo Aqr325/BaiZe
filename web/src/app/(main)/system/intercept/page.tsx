@@ -149,6 +149,7 @@ type RuleForm = {
   timeout_enabled: boolean;
   timeout_seconds: number;
   timeout_action: "deny" | "allow";
+  stop_worker: boolean;
 };
 
 const defaultForm = (): RuleForm => ({
@@ -163,6 +164,7 @@ const defaultForm = (): RuleForm => ({
   timeout_enabled: true,
   timeout_seconds: 60,
   timeout_action: "deny",
+  stop_worker: false,
 });
 
 // ---- small components ----
@@ -675,6 +677,7 @@ export default function InterceptPage() {
       timeout_enabled: rule.timeout_enabled,
       timeout_seconds: rule.timeout_seconds,
       timeout_action: rule.timeout_action,
+      stop_worker: rule.stop_worker,
     });
     setRegexErr("");
     setOpen(true);
@@ -1016,6 +1019,19 @@ export default function InterceptPage() {
                   className="resize-none"
                 />
               </Field>
+            )}
+
+            {form.action === "deny" && (
+              <>
+                <Separator />
+                <div className="flex items-center justify-between">
+                  <div className="pr-3">
+                    <p className="text-sm font-medium">{ui("screen.9e2f7c1a5b8d40e6")}</p>
+                    <p className="text-xs text-muted-foreground">{ui("screen.a1b2c3d4e5f60789")}</p>
+                  </div>
+                  <Switch checked={form.stop_worker} onCheckedChange={(v) => set({ stop_worker: v })} />
+                </div>
+              </>
             )}
 
             {form.action === "ask" && (

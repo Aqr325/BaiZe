@@ -1144,9 +1144,13 @@ CREATE TABLE IF NOT EXISTS intercept_rules (
     timeout_enabled BOOLEAN NOT NULL DEFAULT true,
     timeout_seconds INTEGER NOT NULL DEFAULT 60,
     timeout_action  TEXT    NOT NULL DEFAULT 'deny',
+    -- stop_worker: deny 命中后同步取消本意图(Worker/沙箱)并停止自动重试。
+    -- 仅对「反制上线/恶意外发」类 deny 规则开启(见 docs 白泽-反蜜罐 §3 DENY 熔断)。
+    stop_worker     BOOLEAN NOT NULL DEFAULT false,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE intercept_rules ADD COLUMN IF NOT EXISTS stop_worker BOOLEAN NOT NULL DEFAULT false;
 DROP TRIGGER IF EXISTS trg_intercept_rules_upd ON intercept_rules;
 CREATE TRIGGER trg_intercept_rules_upd BEFORE UPDATE ON intercept_rules
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();

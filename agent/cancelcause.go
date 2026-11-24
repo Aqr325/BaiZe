@@ -51,6 +51,8 @@ var (
 		"用户暂停了正在运行的 Worker。本次调用被取消，意图转为 paused；已经登记的意图、事实、漏洞和活动记录全部保留，恢复后从头重新执行")
 	AbortWorkCancelledByUser = cause("work_cancelled_by_user", "用户删除了这条 Worker 意图",
 		"用户删除了正在运行的 Worker。本次调用被取消；Worker 退出写入区后，服务端按用户选择的删除模式处理该意图——假删除仅标记为已删除并保留全部产出，真删除会级联移除该意图及仅由它支撑的下游节点")
+	AbortWorkStopWorker = cause("work_stopped_by_intercept", "拦截规则终止了这条意图",
+		"一条开启了「停止 Worker」的 deny 拦截规则命中，平台同步取消本意图并停止自动重试。已写入的事实与资产保留；意图标记为 stopped，不会自动重新领取。这通常表示该方向触发了反制/外发类禁止操作，应人工确认后再决定是否换方向继续")
 	AbortWorkFinished = cause("work_finished", "Worker 已正常结束并释放 context",
 		"Worker 已正常结束，引擎在 detachWork 中释放其 context 资源。这不是运行中断；若它出现在中断消息中，说明取消与收场事件发生了竞态")
 	AbortCallBudgetExhausted = cause("call_budget_exhausted", "单意图 LLM 调用预算耗尽",

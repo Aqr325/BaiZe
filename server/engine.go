@@ -1119,6 +1119,11 @@ func (e *Engine) runIntent(ctx context.Context, t *Task, name string, worker *ag
 	// per-work child context so the planner's kill_work can stop just this work.
 	workCtx, workCancel := context.WithCancelCause(ectx)
 	e.registerWork(intent.ID, workCancel)
+	// DENY 熔断(§3)：把本意图的取消回调挂到 workCtx。当一条开启了 StopWorker 的
+	// deny 拦截规则命中时，guard 从 ctx 取到该回调并执行——用命名 cause 取消本意图，
+	// 引擎按 killed 路径把意图标 stopped(不自动重取)，实现「反制上线类禁止操作→停 Worker+禁自动重试」。
+	// 闭包已携带 AbortWorkStopWorker，guard 包无需导入 agent(避免循环)。
+	workCtx = intercept.WithWorkCancel(workCtx, func() { workCancel(agent.AbortWorkStopWorker) })
 	// 单意图跨五层调用预算：挂在 workCtx 上，与 workCancel 绑定，耗尽即取消本意图
 	// 的整个调用链——SDK 建连/空响应重试、同 provider 窗口、profile 故障转移、
 	// model_error 重跑都检查 ctx.Err()，一次熔断全部停下，避免计费失控。
