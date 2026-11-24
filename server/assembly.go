@@ -68,6 +68,26 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 								ToolName: "precheck", Detail: pc.WarnReason,
 							})
 						}
+						// --- 溯源 hash 校验（供应链安全审计 §2.5）---
+						// 加载时重算 skill 的 tree-hash 与 provenance.json 比对：
+						// mismatch（内容变了）→ 判定篡改/漂移 → 隔离 + 落审计；
+						// missing/error → 无法溯源，仅告警不阻断（fail-open）。
+						pv := CheckSkillProvenance(skillDir, filepath.Base(s.Dir))
+						switch pv.Status {
+						case provMismatch:
+							logSkillProvenance(s.Name, pv)
+							_ = pg.InsertMCPSecurityEvent(db.MCPSecurityEvent{
+								Kind: "skill-tamper", ServerName: s.Name,
+								ToolName: "provenance", Detail: pv.Detail,
+							})
+							continue
+						case provMissing, provError:
+							logSkillProvenance(s.Name, pv)
+							_ = pg.InsertMCPSecurityEvent(db.MCPSecurityEvent{
+								Kind: "skill-provenance-warn", ServerName: s.Name,
+								ToolName: "provenance", Detail: pv.Detail,
+							})
+						}
 						reg.Add(s)
 					}
 				}

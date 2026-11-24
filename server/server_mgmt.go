@@ -1202,6 +1202,10 @@ func (s *Server) fsCreateSkill(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	// 溯源 hash 校验 §2.5：新建 skill 也钉内容 tree-hash，供加载时比对。
+	if err := RecordSkillProvenance(s.skillDir, body.Name, "", body.License); err != nil {
+		log.Printf("[skill-provenance] 记录失败 skill=%q: %v", body.Name, err)
+	}
 	writeJSON(w, 201, map[string]any{"name": body.Name})
 }
 
@@ -1506,6 +1510,11 @@ func (s *Server) fsUploadSkill(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "安装失败："+err.Error())
 		return
 	}
+	// 溯源 hash 校验 §2.5：记录安装 skill 的 tree-hash + 来源，供加载时比对。
+	// origin 从查询参数取（客户端可给 GitHub URL/commit），缺失则留空仅钉内容 hash。
+	if err := RecordSkillProvenance(s.skillDir, name, r.URL.Query().Get("origin"), r.URL.Query().Get("license")); err != nil {
+		log.Printf("[skill-provenance] 记录失败 skill=%q: %v", name, err)
+	}
 	writeJSON(w, 201, map[string]any{"name": name, "files": entries})
 }
 
@@ -1539,6 +1548,20 @@ func (s *Server) fsDeleteSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"deleted": name})
+}
+
+// fsRegenSkillProvenance re-pins every skill's content tree-hash in
+// provenance.json. Needed after any intentional skill content change (a legit
+// update changes the tree hash; load-time verification would otherwise isolate
+// the skill as tampered). Existing origin/license metadata is preserved.
+func (s *Server) fsRegenSkillProvenance(w http.ResponseWriter, r *http.Request) {
+	count, err := RegenerateSkillProvenance(s.skillDir, nil)
+	if err != nil {
+		writeErr(w, 500, "溯源清单重生成失败："+err.Error())
+		return
+	}
+	log.Printf("[skill-provenance] 清单重生成完成，重钉 %d 个 skill", count)
+	writeJSON(w, 200, map[string]any{"regenerated": count})
 }
 
 // skillPathBlocked lists the ASCII characters a skill-relative path may not contain.

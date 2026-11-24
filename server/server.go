@@ -1206,6 +1206,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/skills", s.fsCreateSkill)
 	mux.HandleFunc("POST /api/skills/upload", s.fsUploadSkill)
 	mux.HandleFunc("DELETE /api/skills/{name}", s.fsDeleteSkill)
+	// 溯源清单重生成：内容变更后重钉所有 skill 的 tree-hash（防投毒 §2.5）。
+	mux.HandleFunc("POST /api/skills/provenance/regen", s.fsRegenSkillProvenance)
 	mux.HandleFunc("GET /api/skills/missing", s.fsMissingSkills)   // 未命中(想调但不存在)的 skill 名
 	mux.HandleFunc("GET /api/skills/{name}/usage", s.fsSkillUsage) // 单个 skill 的最近调用
 	mux.HandleFunc("PUT /api/skills/{name}/meta", s.fsUpdateSkillMeta)

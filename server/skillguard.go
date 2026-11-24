@@ -284,3 +284,15 @@ func logSkillPrecheck(name string, pc SkillPrecheck) {
 		log.Printf("[skill-precheck] 告警 skill=%q: %s", name, pc.WarnReason)
 	}
 }
+
+// logSkillProvenance 把溯源校验结论落日志（供 wireAgentAugment 调用）。
+func logSkillProvenance(name string, pc provenanceCheck) {
+	switch pc.Status {
+	case provMismatch:
+		log.Printf("[skill-provenance] 隔离 skill=%q: %s", name, pc.Detail)
+	case provMissing:
+		log.Printf("[skill-provenance] 未溯源 skill=%q: %s", name, pc.Detail)
+	case provError:
+		log.Printf("[skill-provenance] 校验失败 skill=%q: %s", name, pc.Detail)
+	}
+}
