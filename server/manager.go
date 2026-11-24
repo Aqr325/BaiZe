@@ -1166,6 +1166,11 @@ func unixNanoOrZero(t *time.Time) int64 {
 
 func taskFromPG(pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Interceptor) *Task {
 	g := guard.NewWithInterceptor(ic)
+	// skill 正文拦截（供应链安全审计 §2.1）：把 skill 正文对用户 deny 规则跑一遍，
+	// 正文有毒就不让进 agent 上下文。未注册（无 skillDir）时探针为 nil，回落纯 tool-call 边界。
+	if p := GetSkillContentProbe(); p != nil {
+		g.SetSkillProbe(p)
+	}
 	// 宿主强制：任务一旦有 deny 类操作约束，其工具调用一律转人工审批，
 	// 由人对照自然语言约束裁决（不再只靠 system prompt 自觉）。
 	// 每次调用现读约束——约束可在运行时增删，不能缓存。

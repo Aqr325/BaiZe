@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -49,6 +50,12 @@ type Guard struct {
 	// edits take effect immediately, matching the deny check's live semantics).
 	// Preferred over a static `fence` when set. nil = no live fence.
 	fenceLoader func() *Fence
+	// skillProbe resolves a skill's 正文 (Instructions) by name, so the guard can
+	// apply user-configured deny rules to skill CONTENT — not just the tool call
+	// shell. skill content enters the agent context when a skill is invoked, and
+	// is otherwise invisible to the tool-call boundary (供应链安全审计 §2.1:
+	// 恶意 skill 正文 = 提示注入面，位于 tool-call 防线盲区)。nil = no probe.
+	skillProbe func(name string) (content string, ok bool)
 }
 
 // SetDenyConstraintCheck installs a live check for this task's deny constraints.
@@ -62,6 +69,18 @@ func (g *Guard) SetFence(f *Fence) { g.fence = f }
 // SetFenceLoader installs a live fence builder, re-read from DB each tool call so
 // runtime constraint edits take effect immediately. Overrides a static SetFence.
 func (g *Guard) SetFenceLoader(fn func() *Fence) { g.fenceLoader = fn }
+
+// SetSkillProbe installs a resolver that returns a skill's 正文 (Instructions) by
+// name. When set, skill invocations additionally have their content evaluated
+// against user-configured deny rules (see checkSkillContent).
+func (g *Guard) SetSkillProbe(fn func(name string) (string, bool)) { g.skillProbe = fn }
+
+// isSkillTool reports whether the hook event is a skill invocation. The skill
+// meta-tool is named "Skill" (norma), matched case-insensitively so a deny rule
+// scoped to "skill" also applies.
+func isSkillTool(name string) bool {
+	return strings.EqualFold(name, "Skill")
+}
 
 // New creates a Guard without user-configured intercept rules (used for pentest
 // tasks where the Interceptor is not yet available).
@@ -115,6 +134,17 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 	ctx = intercept.WithCall(ctx, ev.ToolName, ev.Input)
 	convID := intercept.ConvIDFromContext(ctx)
 
+	// --- 0. skill 正文拦截：恶意 skill 的正文=提示注入面，tool-call 边界看不到。
+	// skill 被 invoke 时其 Instructions 进入 agent 上下文；这里用用户配置的 deny
+	// 规则对正文跑一遍（Match 以 "Skill" 作 tool name，正文作 input），命中即硬拦。
+	// 预检 ①（skillguard.LoadDir 黑名单）拦固定高危模式；本层让操作者可把任意
+	// deny 规则（含 tool_input 正则）套到 skill 正文上。优先级最高：正文有毒就不该进上下文。
+	if g.skillProbe != nil && g.interceptor != nil && isSkillTool(ev.ToolName) {
+		if res, handled := g.checkSkillContent(ctx, ev); handled {
+			return res
+		}
+	}
+
 	// 取当前 Fence：live fenceLoader（每次现读，约束可运行时增删）优先于静态 SetFence。
 	fence := g.fence
 	if g.fenceLoader != nil {
@@ -165,6 +195,36 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 		})
 	}
 	return g.ruleTail(ctx, ev)
+}
+
+// checkSkillContent evaluates a skill invocation's 正文 against user-configured
+// deny rules. Returns (result, true) when the content is denied — the skill
+// invocation is blocked so its instructions never reach the agent context.
+// (result, false) means the content is clean (or unresolved) and the normal
+// tool-call boundary continues.
+func (g *Guard) checkSkillContent(ctx context.Context, ev hook.Event) (hook.Result, bool) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(ev.Input, &in); err != nil || strings.TrimSpace(in.Name) == "" {
+		return hook.Result{}, false
+	}
+	content, ok := g.skillProbe(strings.TrimSpace(in.Name))
+	if !ok || content == "" {
+		return hook.Result{}, false
+	}
+	// 用 "Skill" 作 tool name：deny 规则若按 tool_name 限定到 skill 也命中；
+	// tool_input 规则则直接匹配正文（ruleMatches 对 tool_input 先匹配原始串）。
+	dec, matched := g.interceptor.Match("Skill", []byte(content))
+	if !matched || dec.Action != "deny" {
+		return hook.Result{}, false
+	}
+	convID := intercept.ConvIDFromContext(ctx)
+	g.interceptor.Log(ctx, convID, dec, "Skill", []byte(content), "denied")
+	msg := systemBlockMessage("skill 正文命中拦截规则 [" + dec.RuleName + "]：" + dec.Message)
+	res := g.block("Skill", msg, "")
+	g.maybeStopWorker(ctx, dec)
+	return res, true
 }
 
 // ruleTail 是既有「用户配置拦截规则 + LLM 裁判兜底」路径，与旧逻辑一致。

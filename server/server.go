@@ -212,6 +212,9 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		authTokenVer: defaultAuthTokenVersion}
 	m.SetTaskControlMutex(&s.concMu)
 	s.initSideQuestions()
+	// skill 正文解析器（供应链安全审计 §2.1）：Guard 用它把 skill 正文对用户
+	// deny 规则跑一遍。skillDir 固定，注册一次即可。
+	SetSkillContentProbe(skillContentFromDisk(skillDir))
 	s.authLimit = newAuthLimiter(nil)
 	if m.pg != nil {
 		// Load the persisted token version once. Direct DB reads on every
