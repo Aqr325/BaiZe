@@ -37,6 +37,10 @@ func (s *Server) chatGuard() *guard.Guard {
 // resolves the configured judge profile (0 → active/default), builds a provider,
 // runs a one-shot JSON classification with an explanation for every verdict.
 func (s *Server) wireInterceptReviewer() {
+	// Unattended mode: converge judge fail/ask-timeout to "deny" so a downgraded
+	// config (fail_action=allow) can never auto-allow a destructive tool call
+	// while no operator is watching. Runtime overlay — saved config is untouched.
+	s.m.interceptor.SetUnattendedEnabled(func() bool { return s.m.pg.GetBool(settingUnattended, false) })
 	s.m.interceptor.SetReviewer(func(ctx context.Context, profileID int64, prompt string, input intercept.ReviewInput) (intercept.Decision, error) {
 		if profileID == 0 {
 			if p, err := s.m.pg.ActiveProfile(); err == nil && p != nil {

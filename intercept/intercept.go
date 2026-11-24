@@ -128,7 +128,8 @@ type Interceptor struct {
 	cached       []compiledRule  // sorted by priority DESC; nil means not loaded yet
 	enabledTools map[string]bool // nil means not loaded yet
 	pending      *pendingManager
-	reviewer     Reviewer // nil = LLM fallback judge not wired
+	reviewer     Reviewer    // nil = LLM fallback judge not wired
+	unattended   func() bool // nil = unattended mode not wired (off)
 }
 
 // SetReviewer installs the LLM fallback judge callback. Passing nil disables it.
@@ -136,6 +137,24 @@ func (i *Interceptor) SetReviewer(r Reviewer) {
 	i.mu.Lock()
 	i.reviewer = r
 	i.mu.Unlock()
+}
+
+// SetUnattendedEnabled installs the unattended-mode probe. When it returns true,
+// the judge's fail/ask-timeout strategy is forcibly converged to "deny" (never
+// auto-allow a downgraded decision), so an 8-hour unattended run stays safe even
+// if an operator previously set llm_judge_ask_timeout_action=allow. The operator's
+// saved config is never rewritten — convergence is a runtime overlay only.
+func (i *Interceptor) SetUnattendedEnabled(f func() bool) {
+	i.mu.Lock()
+	i.unattended = f
+	i.mu.Unlock()
+}
+
+func (i *Interceptor) unattendedOn() bool {
+	i.mu.RLock()
+	f := i.unattended
+	i.mu.RUnlock()
+	return f != nil && f()
 }
 
 // defaultEnabledTools is the hard-coded set of tools that enter the intercept
@@ -372,6 +391,19 @@ func (i *Interceptor) judgeConfig() JudgeConfig {
 	}
 	if c.ConfidenceThreshold < 0 || c.ConfidenceThreshold > 1 {
 		c.ConfidenceThreshold = defaultJudgeConfidence
+	}
+	return convergeUnattended(c, i.unattendedOn())
+}
+
+// convergeUnattended is the unattended-mode safety overlay: when no operator is
+// present to answer an "ask", a downgraded fail_action / ask_timeout_action would
+// auto-allow a destructive tool call while nobody watches. Converge both to
+// "deny" (fail-safe), regardless of the saved config. The saved settings are
+// untouched — this is a runtime overlay only (see Interceptor.SetUnattendedEnabled).
+func convergeUnattended(c JudgeConfig, unattended bool) JudgeConfig {
+	if unattended {
+		c.FailAction = "deny"
+		c.AskTimeoutAction = "deny"
 	}
 	return c
 }

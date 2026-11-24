@@ -3804,6 +3804,7 @@ func (s *Server) settingsPayload() map[string]any {
 		"browser_screenshot_timestamp_enabled": s.m.pg.GetBool(settingScreenshotTimestamp, false),
 		"opsec_enabled":                        s.m.pg.GetBool(settingOpsecEnabled, false),
 		"untrusted_marking":                    s.m.pg.GetBool(settingUntrustedMarking, true),
+		"unattended_mode":                      s.m.pg.GetBool(settingUnattended, false),
 		"agent_traffic_binding":                s.m.pg.GetBool(settingAgentTrafficBinding, false),
 		"task_intelligence_enabled":            s.m.pg.GetBool(db.SettingTaskIntelligence, false),
 		db.SettingTaskAutoTitle:                s.m.pg.GetBool(db.SettingTaskAutoTitle, false),
@@ -3909,6 +3910,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		ScreenshotTimestamp *bool `json:"browser_screenshot_timestamp_enabled"`
 		OpsecEnabled        *bool `json:"opsec_enabled"`
 		UntrustedMarking    *bool `json:"untrusted_marking"`
+		UnattendedMode      *bool `json:"unattended_mode"`
 		AgentTrafficBinding *bool `json:"agent_traffic_binding"`
 		TaskIntelligence    *bool `json:"task_intelligence_enabled"`
 		TaskAutoTitle       *bool `json:"task_auto_title_enabled"`
@@ -4141,6 +4143,10 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if req.UntrustedMarking != nil {
 		values[settingUntrustedMarking] = strconv.FormatBool(*req.UntrustedMarking)
 		// 运行时钩子读的就是这个 setting，无需重建 agent；下次 renderSystem 立即生效。
+	}
+	if req.UnattendedMode != nil {
+		values[settingUnattended] = strconv.FormatBool(*req.UnattendedMode)
+		// judgeConfig() 每次读取实时值，无人值守收敛立即生效，无需重建。
 	}
 	if req.TrafficCapture != nil {
 		if err := s.m.SetTrafficEnabled(*req.TrafficCapture); err != nil {

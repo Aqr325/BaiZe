@@ -1048,6 +1048,8 @@ export interface Settings {
   opsec_enabled?: boolean;
   /** 是否对 WebFetch/MCP 外部内容加不可信标记。默认开启。 */
   untrusted_marking?: boolean;
+  /** 无人值守模式：判官 fail/ask-timeout 策略强制收敛为 deny。默认关闭。 */
+  unattended_mode?: boolean;
   credential_agent_enabled: boolean;
   credential_traffic_binding: boolean;
   task_intelligence_enabled: boolean; // 默认关闭；关闭不注入情报工具或提示

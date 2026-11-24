@@ -317,6 +317,7 @@ const (
 	settingScreenshotTimestamp = "browser_screenshot_timestamp_enabled"
 	settingOpsecEnabled        = "opsec_enabled"
 	settingUntrustedMarking    = "untrusted_marking"
+	settingUnattended          = "unattended_mode"
 	settingMemoryEnabled       = "memory_enabled"
 	settingAutoMemory          = "memory_auto_extract"
 	settingObsidianVault       = "obsidian_vault"

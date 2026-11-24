@@ -49,6 +49,7 @@ export default function SystemSettingsPage() {
   const [browserScreenshotTimestamp, setBrowserScreenshotTimestamp] = React.useState(false);
   const [opsecEnabled, setOpsecEnabled] = React.useState(false);
   const [untrustedMarking, setUntrustedMarking] = React.useState(true);
+  const [unattendedMode, setUnattendedMode] = React.useState(false);
   const [settingQuery, setSettingQuery] = React.useState("");
   const [activeCategory, setActiveCategory] = React.useState("system");
   const [agentTrafficBinding, setAgentTrafficBinding] = React.useState(false);
@@ -132,6 +133,7 @@ export default function SystemSettingsPage() {
     setBrowserScreenshotTimestamp(!!s.browser_screenshot_timestamp_enabled);
     setOpsecEnabled(!!s.opsec_enabled);
     setUntrustedMarking(s.untrusted_marking !== false);
+    setUnattendedMode(!!s.unattended_mode);
     setAgentTrafficBinding(!!s.agent_traffic_binding);
     setWebSearch(!!s.web_search_enabled);
     setBackend(s.web_search_backend || "ddgs");
@@ -340,6 +342,22 @@ export default function SystemSettingsPage() {
       })
       .catch((e) => {
         setUntrustedMarking(!v);
+        toast.error(t("settings.saveFailed", { message: localizedError(e, t) }));
+      })
+      .finally(() => setSaving(false));
+  };
+
+  const toggleUnattendedMode = (v: boolean) => {
+    setUnattendedMode(v);
+    setSaving(true);
+    api
+      .setSettings({ unattended_mode: v })
+      .then((s) => {
+        apply(s);
+        toast.success(v ? t("settings.unattendedEnabled") : t("settings.unattendedDisabled"));
+      })
+      .catch((e) => {
+        setUnattendedMode(!v);
         toast.error(t("settings.saveFailed", { message: localizedError(e, t) }));
       })
       .finally(() => setSaving(false));
@@ -914,6 +932,20 @@ export default function SystemSettingsPage() {
                     checked={untrustedMarking}
                     disabled={!loaded || saving}
                     onCheckedChange={toggleUntrustedMarking}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-4 py-3 last:pb-0">
+                  <div className="min-w-0">
+                    <Label htmlFor="unattended-mode" className="text-sm font-medium">
+                      {t("settings.unattendedMode")}
+                    </Label>
+                    <p className="text-muted-foreground mt-1 text-xs">{t("settings.unattendedModeHelp")}</p>
+                  </div>
+                  <Switch
+                    id="unattended-mode"
+                    checked={unattendedMode}
+                    disabled={!loaded || saving}
+                    onCheckedChange={toggleUnattendedMode}
                   />
                 </div>
               </CardContent>
