@@ -177,6 +177,11 @@ func (s *Server) interceptCreateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.m.interceptor.Invalidate()
+	auditInterceptConfig(r, interceptConfigEvent{
+		Op:     "create_rule",
+		Target: req.Name,
+		Detail: "action=" + req.Action + " enabled=" + boolStr(req.Enabled) + " match=" + req.MatchTarget + "/" + req.MatchType,
+	})
 	writeJSON(w, 200, rule)
 }
 
@@ -205,6 +210,18 @@ func (s *Server) interceptUpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.m.interceptor.Invalidate()
+	// 降级信号：内置规则被改为 allow / 被禁用，或动作从 deny 削弱为 allow/ask。
+	degrade := (isBuiltinRule(req.Name) && (!req.Enabled || req.Action == "allow")) || req.Action == "allow"
+	ev := interceptConfigEvent{
+		Op:      "update_rule",
+		Target:  req.Name,
+		Detail:  "id=" + strconv.FormatInt(id, 10) + " action=" + req.Action + " enabled=" + boolStr(req.Enabled),
+		Degrade: degrade,
+	}
+	if degrade {
+		ev.Why = "规则动作削弱为 allow 或内置安全规则被禁用"
+	}
+	auditInterceptConfig(r, ev)
 	writeJSON(w, 200, rule)
 }
 
@@ -218,11 +235,28 @@ func (s *Server) interceptDeleteRule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad rule id")
 		return
 	}
+	// 删前查名：内置安全规则被删除属安全基线降级，审计标 WARN。
+	ruleName := ""
+	if rules, lerr := pg.ListInterceptRules(); lerr == nil {
+		for _, rr := range rules {
+			if rr.ID == id {
+				ruleName = rr.Name
+				break
+			}
+		}
+	}
 	if err := pg.DeleteInterceptRule(id); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	s.m.interceptor.Invalidate()
+	auditInterceptConfig(r, interceptConfigEvent{
+		Op:      "delete_rule",
+		Target:  ruleName,
+		Detail:  "id=" + strconv.FormatInt(id, 10),
+		Degrade: isBuiltinRule(ruleName),
+		Why:     "内置安全规则被删除",
+	})
 	writeJSON(w, 200, map[string]any{"deleted": id})
 }
 
@@ -243,11 +277,27 @@ func (s *Server) interceptToggleRule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	ruleName := ""
+	if rules, lerr := pg.ListInterceptRules(); lerr == nil {
+		for _, rr := range rules {
+			if rr.ID == id {
+				ruleName = rr.Name
+				break
+			}
+		}
+	}
 	if err := pg.ToggleInterceptRule(id, req.Enabled); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	s.m.interceptor.Invalidate()
+	auditInterceptConfig(r, interceptConfigEvent{
+		Op:      "toggle_rule",
+		Target:  ruleName,
+		Detail:  "id=" + strconv.FormatInt(id, 10) + " enabled=" + boolStr(req.Enabled),
+		Degrade: !req.Enabled && isBuiltinRule(ruleName),
+		Why:     "内置安全规则被禁用",
+	})
 	writeJSON(w, 200, map[string]any{"ok": true, "enabled": req.Enabled})
 }
 
@@ -480,6 +530,10 @@ func (s *Server) interceptSetToolConfig(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 500, err.Error())
 		return
 	}
+	auditInterceptConfig(r, interceptConfigEvent{
+		Op:     "set_tool_config",
+		Detail: "enabled_tools=" + strings.Join(req.EnabledTools, ","),
+	})
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -546,6 +600,13 @@ func (s *Server) interceptSetJudgeConfig(w http.ResponseWriter, r *http.Request)
 		}
 		return
 	}
+	degradeWhy := judgeDegradeReason(req.Enabled, req.FailAction, req.AskTimeoutAction)
+	auditInterceptConfig(r, interceptConfigEvent{
+		Op:      "set_judge_config",
+		Detail:  "enabled=" + boolStr(req.Enabled) + " fail=" + req.FailAction + " ask_timeout=" + req.AskTimeoutAction + " confidence=" + strconv.FormatFloat(req.ConfidenceThreshold, 'f', 2, 64),
+		Degrade: degradeWhy != "",
+		Why:     degradeWhy,
+	})
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
