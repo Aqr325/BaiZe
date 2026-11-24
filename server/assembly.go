@@ -46,6 +46,28 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 				for _, s := range allReg.List() {
 					// match by directory name (Base of Dir), not by skill display Name
 					if s.Dir != "" && nameSet[filepath.Base(s.Dir)] {
+						// --- skill 内容预检（供应链安全审计 §2.1）---
+						// LoadDir 本身零校验；这里补一道「无正当用途的最高危模式」硬拦。
+						// BlockReason 非空 → 隔离（不进 reg，模型看不到）+ 落审计事件。
+						// WarnReason 非空 → 仅审计告警（如硬编码外传域名需人工确认）。
+						pc := PrecheckSkill(s)
+						if pc.BlockReason != "" {
+							logSkillPrecheck(s.Name, pc)
+							if err := pg.InsertMCPSecurityEvent(db.MCPSecurityEvent{
+								Kind: "skill-block", ServerName: s.Name,
+								ToolName: "precheck", Detail: pc.BlockReason,
+							}); err != nil {
+								log.Printf("[skill-precheck] 事件落库失败: %v", err)
+							}
+							continue
+						}
+						if pc.WarnReason != "" {
+							logSkillPrecheck(s.Name, pc)
+							_ = pg.InsertMCPSecurityEvent(db.MCPSecurityEvent{
+								Kind: "skill-warn", ServerName: s.Name,
+								ToolName: "precheck", Detail: pc.WarnReason,
+							})
+						}
 						reg.Add(s)
 					}
 				}
