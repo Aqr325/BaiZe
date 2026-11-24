@@ -1,0 +1,93 @@
+# SkillSpector baseline — agentic-detections
+#
+# Baseline suppresses known-accepted findings so re-scans surface only NEW
+# issues. Applied automatically via `skillspector scan <skill> --use-shipped-baseline`.
+#
+# Scope: ALL findings below are FALSE POSITIVES. This is a READ-ONLY defensive
+# detection rule library (ThreatDefence/agentic-attack-detections, MIT) — it
+# ships YARA/Sigma/Suricata/KQL/Zeek rules + threat-intel indicators that
+# legitimately REFERENCE attack signatures (malware, C2, obfuscation, cloud
+# metadata, privileged k8s, credential flows, agent config dirs, anti-refusal
+# strings, self-modification patterns). A generic anti-tamper scanner misreads
+# these detection signatures as "the skill is the attack". The skill never runs
+# scripts or modifies files (see SKILL.md). Verified manually 2026-11-24.
+#
+# Real supply-chain findings (SC1/SC4 — unpinned/advisory deps in
+# tools/requirements.txt) are deliberately NOT listed here so they stay visible
+# and actionable (pin versions in tools/).
+
+version: 2
+scanner_version: "2.12.0"
+
+rules:
+  - id: "TT3"
+    reason: "False positive: detection rules reference credential->network flows of the target framework as a signature"
+
+  - id: "YR1"
+    reason: "False positive: YARA rules detect known malware/C2 signatures by design"
+
+  - id: "YR4"
+    reason: "False positive: YARA rules reference offensive tool/exploit indicators by design"
+
+  - id: "AR1"
+    reason: "False positive: detection signatures match anti-refusal strings in target framework docs/rules"
+
+  - id: "AR2"
+    reason: "False positive: detection signatures reference omitted-warning patterns in target framework rules"
+
+  - id: "AS1"
+    reason: "False positive: detection rules reference agent config dir access (.claude/.codex/.gemini) as a signal"
+
+  - id: "AS3"
+    reason: "False positive: detection rules enumerate other installed skills as a signal"
+
+  - id: "AST3"
+    reason: "False positive: detection rules reference dynamic import in target framework code as a signal"
+
+  - id: "AST4"
+    reason: "False positive: detection rules reference subprocess calls in target framework code as a signal"
+
+  - id: "E1"
+    reason: "False positive: detection rules reference external-URL sends in target framework code as a signal"
+
+  - id: "EA2"
+    reason: "False positive: detection rules reference autonomous high-impact decisions in target framework as a signal"
+
+  - id: "LP3"
+    reason: "Accepted: read-only reference library; broad declared access reflects reading detection rules, not executing"
+
+  - id: "PE2"
+    reason: "False positive: detection rules reference sudo/root usage in target framework code as a signal"
+
+  - id: "PE3"
+    reason: "False positive: detection rules reference credential-file access in target framework code as a signal"
+
+  - id: "PE5"
+    reason: "False positive: detection rules reference security-relevant code patterns in target frameworks as signals"
+
+  - id: "RA1"
+    reason: "False positive: detection rules reference self-modification patterns in target framework code as a signal"
+
+  - id: "RA2"
+    reason: "False positive: detection rules reference persistence mechanisms in target framework code as a signal"
+
+  - id: "RP1"
+    reason: "False positive: detection rules reference unpinned container images in target framework manifests as a signal"
+
+  - id: "SC2"
+    reason: "False positive: source-code-signals.md documents the target framework's script-fetching behavior as a detection reference"
+
+  - id: "SC3"
+    reason: "False positive: detection rules match obfuscation signatures (base64/hex) by design"
+
+  - id: "SSRF1"
+    reason: "False positive: detection rules reference cloud metadata endpoint access in target framework code as a signal"
+
+  - id: "TM1"
+    reason: "False positive: detection rules reference unsafe tool-parameter patterns in target framework code as a signal"
+
+  - id: "TM4"
+    reason: "False positive: detection rules reference privileged Kubernetes workloads in target framework manifests as a signal"
+
+  # Real findings deliberately NOT suppressed (kept visible for remediation):
+  #   SC1 / SC4 — unpinned/advisory deps in tools/requirements.txt (pin versions)

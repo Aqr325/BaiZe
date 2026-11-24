@@ -1,0 +1,13 @@
+# SkillSpector baseline — scopesentry
+#
+# Baseline suppresses known-accepted findings so re-scans surface only NEW
+# issues. Applied automatically via `skillspector scan <skill> --use-shipped-baseline`.
+#
+# scopesentry is a first-party skill with a clean scan (0 findings) as of
+# 2026-11-24. This baseline is an empty allowlist: it accepts nothing, so any
+# future finding surfaces immediately.
+
+version: 2
+scanner_version: "2.12.0"
+
+rules: []

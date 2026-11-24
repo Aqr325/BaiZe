@@ -51,3 +51,57 @@ jobs:
         # 依赖 PG 的用例通过 ARTEX_PG_DSN 连上面的 service；重 DB 包的
         # TestMain 共用 advisory lock 7337741002 协调并发清理，支持并发跑包。
         run: go test ./... -race -count=1
+
+  # 技能准入体检：第三方/自研 skill 入库前跑 SkillSpector 防投毒扫描。
+  # 门禁规则：剩余 HIGH/CRITICAL 发现即失败；LOW/MEDIUM（如 SC1/SC4 依赖未钉版）
+  # 仅告警不阻断（属供应链卫生建议，另走 npm audit / 钉版修复）。
+  # 每个可扫 skill 目录自带 .skillspector-baseline.yaml（基线白名单），
+  # --use-shipped-baseline 自动拾取；基线只压「合法安全工具被通用扫描器误判」
+  # 的误报，真实问题（SC1/SC4）刻意保留可见。
+  # 排除：anthropic-cybersecurity（819 子 skill）、cyber-monster（数百子 skill）
+  # 为只读参考规则库，根 SKILL.md 超大导致递归扫描 200s 超时（EXIT=124），
+  # 全量体检不可行；两者为参考引用（agent 只读文件不执行脚本），投毒风险面低。
+  skillspector-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install SkillSpector (pin to baseline scanner_version)
+        run: pip install "skillspector==2.12.0"
+      - name: Scan scannable skills (baseline-gated)
+        run: |
+          set -euo pipefail
+          SP=skillspector
+          # 与 docs/白泽-skills体检-skillspector-2026-11-23.md 一致的可扫集合
+          SCANNABLE="api-recon agentic-detections pentest-assistant playwright-cli scopesentry src-vuln-scanner"
+          fail=0
+          for s in $SCANNABLE; do
+            echo "== scan skills/$s =="
+            # --use-shipped-baseline 自动加载 <skill>/.skillspector-baseline.yaml
+            "$SP" scan "skills/$s" --no-llm --use-shipped-baseline --format json > "scan-$s.json" || fail=1
+            python - "$s" <<'PY'
+          import json, sys, collections
+          s = sys.argv[1]
+          d = json.load(open(f"scan-{s}.json"))
+          remaining = d.get("issues", [])
+          blocked = [i for i in remaining if i.get("severity") in ("HIGH", "CRITICAL")]
+          risk = d.get("risk_assessment", {})
+          print(f"  {s}: remaining={len(remaining)} suppressed={d.get('suppressed_count')} "
+                f"risk={risk.get('severity')}/{risk.get('recommendation')} "
+                f"blocking_high_crit={len(blocked)}")
+          if blocked:
+              print(f"  BLOCKED rules: {collections.Counter(i['id'] for i in blocked)}")
+          for i in remaining:
+              if i.get("severity") in ("HIGH", "CRITICAL"):
+                  loc = i.get("location") or {}
+                  f = loc.get("file") if isinstance(loc, dict) else loc
+                  print(f"    [{i['severity']}] {i['id']} {f} {(i.get('pattern') or '')[:60]}")
+PY
+          done
+          echo "scan exit markers: fail=$fail"
+          exit $fail
