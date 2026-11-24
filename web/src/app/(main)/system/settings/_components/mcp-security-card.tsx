@@ -67,7 +67,7 @@ export function McpSecurityCard() {
     const key = `${item.server_name}:${item.tool_name}`;
     setApproving(key);
     try {
-      await api.mcpPinApprove(item.server_name, item.tool_name);
+      await api.mcpPinApprove(item.server_name, item.tool_name, item.new_hash);
       toast.success("已批准，工具将在下次会话恢复");
       await load();
     } catch {

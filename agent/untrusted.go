@@ -45,19 +45,34 @@ const (
 	untrustedDataFooter = "\n</untrusted_external_data>"
 )
 
-// stripHiddenControls removes zero-width and bidi-override code points that are
-// routinely used to hide injected text from a human reviewer or to disguise
-// filenames (RLO). Emoji ZWJ sequences are intentionally sacrificed — in a
-// security agent they carry no meaning, while the same characters are a primary
-// IPI smuggling channel.
+// stripHiddenControls removes zero-width, bidi-control, invisible-format and
+// tag-block code points routinely used to hide injected text from a human
+// reviewer or disguise filenames (RLO). Emoji ZWJ sequences are intentionally
+// sacrificed — in a security agent they carry no meaning, while the same
+// characters are a primary IPI smuggling channel.
+//
+// Coverage (审查【中7】补全): the original set missed LRM/RLM/ALM, the
+// U+2061–206F invisible operator/isolate block, CGJ, Mongolian vowel separator,
+// invisible Hangul fillers and — most importantly — the U+E0000–U+E007F tag
+// block, which can encode arbitrary ASCII invisibly. All are stripped here.
 func stripHiddenControls(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {
 		switch r {
-		case '\u200B', '\u200C', '\u200D', '\uFEFF', '\u2060', '\u00AD', // zero-width / joiners / soft hyphen
-			'\u202A', '\u202B', '\u202C', '\u202D', '\u202E', // bidi embedding/override
-			'\u2066', '\u2067', '\u2068', '\u2069': // bidi isolate
+		case '\u00AD', '\u034F', '\u061C', // soft hyphen, CGJ, Arabic letter mark
+			'\u180E', '\u200B', '\u200C', '\u200D', '\u200E', '\u200F', // MVS, ZWSP, ZWNJ, ZWJ, LRM, RLM
+			'\uFEFF', '\u2060', // BOM, word joiner
+			'\u115F', '\u1160', '\u3164', '\uFFA0': // invisible Hangul / halfwidth fillers
+			continue
+		}
+		if r >= '\u202A' && r <= '\u202E' { // bidi embedding/override (LRE..RLO)
+			continue
+		}
+		if r >= '\u2061' && r <= '\u206F' { // function application, invisible ops, bidi isolates
+			continue
+		}
+		if r >= '\U000E0000' && r <= '\U000E007F' { // Unicode tag block: invisible ASCII encoding
 			continue
 		}
 		b.WriteRune(r)

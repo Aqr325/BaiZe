@@ -211,6 +211,13 @@ func sensitiveEnvMask() []string {
 	}
 }
 
+// SensitiveSubprocessEnv returns the platform-secret blank entries (KEY=).
+// Exported so every untrusted subprocess path — not just Bash — can apply the
+// same mask (审查【高3】: stdio MCP and custom-tool Python spawn inherit the
+// full parent env otherwise). Callers that build env from a map can convert
+// each "KEY=" entry into a map key with an empty value.
+func SensitiveSubprocessEnv() []string { return sensitiveEnvMask() }
+
 // proxyEnv builds the Bash-subprocess env: it ALWAYS blanks platform secrets
 // (see sensitiveEnvMask), and additionally routes child-command HTTP through
 // the egress proxy (the recording MITM when capture is on, or the global proxy

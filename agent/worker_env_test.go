@@ -23,6 +23,33 @@ func envContains(env []string, want string) bool {
 	return false
 }
 
+// 审查【高3】：导出的 mask 必须覆盖全部平台密钥，供 stdio MCP / custom-tool
+// 等非 Bash 子进程路径复用（它们默认继承完整父环境）。
+func TestSensitiveSubprocessEnvCoversAllSecrets(t *testing.T) {
+	mask := SensitiveSubprocessEnv()
+	for _, key := range []string{"ARTEX_PG_DSN", "ARTEX_MASTER_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"} {
+		if !envContains(mask, key+"=") {
+			t.Errorf("SensitiveSubprocessEnv missing blank entry for %s: %v", key, mask)
+		}
+	}
+	// dedup last-wins: appended after os.Environ(), the blank must override.
+	inherited := []string{"ARTEX_PG_DSN=postgres://user:pass@host/db", "PATH=/bin"}
+	child := append(append([]string{}, inherited...), mask...)
+	if !envContains(child, "ARTEX_PG_DSN=") {
+		t.Fatal("blank entry not appended")
+	}
+	// emulate os/exec dedup: last occurrence wins
+	last := ""
+	for _, e := range child {
+		if len(e) > len("ARTEX_PG_DSN") && e[:len("ARTEX_PG_DSN")] == "ARTEX_PG_DSN" {
+			last = e
+		}
+	}
+	if last != "ARTEX_PG_DSN=" {
+		t.Fatalf("last-wins value = %q, want blank", last)
+	}
+}
+
 func TestProxyEnvAlwaysBlanksSecrets(t *testing.T) {
 	secretKeys := []string{
 		"ARTEX_PG_DSN", "ARTEX_MASTER_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",

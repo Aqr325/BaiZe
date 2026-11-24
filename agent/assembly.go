@@ -100,10 +100,13 @@ func (g *guardedTool) Call(ctx context.Context, in json.RawMessage, tc *actool.T
 		}
 	}()
 	res, err = g.CoreTool.Call(ctx, in, tc)
-	// 外部内容不可信标记：对 WebFetch / MCP 工具返回的成功文本加数据块围栏，
+	// 外部内容不可信标记：对 WebFetch / MCP 工具返回的文本加数据块围栏，
 	// 防止被测网页/第三方 MCP 返回的注入文本与系统指令同窗被当作命令执行。
-	// 仅处理成功结果（错误是平台自身文案，无需围栏），开关关闭时零开销透传。
-	if err == nil && !res.IsError && untrustedOn() && isExternalContentTool(g.Name()) {
+	// 注意：不排除 res.IsError —— isError 完全由远端 MCP 服务器控制，恶意
+	// server 可用 {"isError":true,...} 携带注入载荷绕过围栏（审查【高1】）。
+	// 外部工具的"错误文本"同样是攻击者内容，必须一并加围栏。仅 SDK 级
+	// 真实错误（err != nil，平台自身文案）才透传；开关关闭时零开销。
+	if err == nil && untrustedOn() && isExternalContentTool(g.Name()) {
 		markExternalResult(g.Name(), &res)
 	}
 	return res, err

@@ -2,8 +2,15 @@ package db
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 )
+
+// ErrQuarantineChanged is returned when the quarantine snapshot changed after
+// the administrator inspected it (审查【中6】TOCTOU): the approve request must
+// carry the exact newHash the admin saw, so a concurrent poisoned re-assembly
+// cannot swap the approved description under the click.
+var ErrQuarantineChanged = errors.New("隔离快照已变化，请刷新后重新审阅再批准")
 
 // MCPPinQuarantinePrefix is the settings key prefix for quarantined MCP tools.
 // Key layout: mcp_pin_quarantine:<server>:<tool> → JSON snapshot.
@@ -77,13 +84,21 @@ func (d *DB) ClearMCPToolQuarantine(server, tool string) error {
 // ApproveMCPToolQuarantine approves a quarantined tool: it advances the pin
 // baseline to the snapshot's new hash and clears the quarantine, so the next
 // agent assembly trusts the new description and the tool reappears.
-func (d *DB) ApproveMCPToolQuarantine(server, tool string) (*MCPToolQuarantine, error) {
+//
+// expectNewHash, when non-empty, is the hash the administrator actually
+// inspected. If the live snapshot differs, approval is refused with
+// ErrQuarantineChanged (TOCTOU guard, 审查【中6】). Empty keeps the legacy
+// behavior for internal callers and tests.
+func (d *DB) ApproveMCPToolQuarantine(server, tool, expectNewHash string) (*MCPToolQuarantine, error) {
 	q, err := d.GetMCPToolQuarantine(server, tool)
 	if err != nil {
 		return nil, err
 	}
 	if q == nil {
 		return nil, nil // nothing to approve
+	}
+	if expectNewHash != "" && q.NewHash != expectNewHash {
+		return nil, ErrQuarantineChanged
 	}
 	baselineKey := "mcp_tool_desc_hash:" + server + ":" + tool
 	if err := d.SetSetting(baselineKey, q.NewHash); err != nil {

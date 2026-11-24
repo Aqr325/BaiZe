@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
+	"github.com/Autumn-27/baize/agent"
 	"github.com/Autumn-27/baize/db"
 	"github.com/Autumn-27/baize/mcphttp"
 	"github.com/Autumn-27/norma/mcp"
@@ -27,7 +29,21 @@ func connectMCP(ctx context.Context, m *db.MCPServer) (mcpClient, error) {
 		if m.Command == "" {
 			return nil, fmt.Errorf("stdio 传输缺少命令")
 		}
-		return mcp.NewStdioClient(ctx, m.Name, m.Command, jsonStrMap(m.Env), jsonStrSlice(m.Args)...)
+		env := jsonStrMap(m.Env)
+		// 审查【高3】：stdio MCP 子进程默认继承父进程全部环境（DSN / 主密钥 /
+		// LLM Key 一览无余），可被诱导执行 env 外带。注入平台密钥屏蔽项——
+		// norma NewStdioClient 在 os.Environ() 之后追加 env map，故此处空值
+		// 覆盖继承值（os/exec last-wins）。用户显式配置的同名 key 例外：若
+		// 管理员在 MCP 配置里明确给了该值，保留其配置（用户意图优先）。
+		for _, entry := range agent.SensitiveSubprocessEnv() {
+			if i := strings.IndexByte(entry, '='); i > 0 {
+				key := entry[:i]
+				if _, configured := env[key]; !configured {
+					env[key] = "" // 屏蔽继承值，但尊重显式配置
+				}
+			}
+		}
+		return mcp.NewStdioClient(ctx, m.Name, m.Command, env, jsonStrSlice(m.Args)...)
 	case "http":
 		if m.URL == "" {
 			return nil, fmt.Errorf("http 传输缺少 URL")

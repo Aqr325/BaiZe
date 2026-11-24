@@ -258,13 +258,20 @@ func claimToolName(owners map[string]string, fullName, server string) (string, b
 //   - advance: update the approved baseline to curHash
 //
 // Rules (fail-safe first):
-//   - baseline read error → do NOT block (avoid dropping every tool on a transient DB error)
+//   - baseline read error → do NOT block AND do NOT advance. Keeping the tool
+//     available preserves availability during a transient DB error, but
+//     advancing the baseline with an unverified curHash would permanently
+//     launder a Rug-Pulled description (审查【高2】): one DB hiccup during
+//     assembly would overwrite the approved hash and silence future checks.
 //   - no baseline (first sight) → trust & advance (avoids breaking servers that just came online)
 //   - unchanged → pass through
 //   - changed + enforce → block (no advance; approving advances the baseline)
 //   - changed + !enforce → warn-only legacy behavior: pass through & advance
 func pinDecision(prev string, hasBaseline bool, cur string, readErr error, enforce bool) (block bool, advance bool) {
-	if readErr != nil || !hasBaseline {
+	if readErr != nil {
+		return false, false // fail-open 可用性，但绝不覆盖基线
+	}
+	if !hasBaseline {
 		return false, true
 	}
 	if prev == cur {

@@ -1313,8 +1313,8 @@ export const api = {
     get<{ entries: McpSecurityEvent[] }>(`/security/mcp-events?limit=${limit}`).then((r) => arr(r.entries)),
   mcpPinQuarantine: () =>
     get<{ items: McpPinQuarantine[]; enforce: boolean }>("/security/mcp-pin/quarantine"),
-  mcpPinApprove: (server: string, tool: string) =>
-    post<{ ok: boolean }>("/security/mcp-pin/approve", { server, tool }),
+  mcpPinApprove: (server: string, tool: string, newHash: string) =>
+    post<{ ok: boolean }>("/security/mcp-pin/approve", { server, tool, new_hash: newHash }),
   mcpPinConfig: () => get<{ enforce: boolean }>("/security/mcp-pin/config"),
   mcpPinSetConfig: (enforce: boolean) =>
     put<{ enforce: boolean }>("/security/mcp-pin/config", { enforce }),

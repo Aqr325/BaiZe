@@ -567,20 +567,26 @@ func (s *Server) listMCPPinQuarantine(w http.ResponseWriter, r *http.Request) {
 
 // approveMCPPin advances a quarantined tool's baseline to the inspected
 // description and clears its quarantine, so it reappears on next assembly.
+// The request must carry the exact new_hash the admin inspected (TOCTOU guard).
 func (s *Server) approveMCPPin(w http.ResponseWriter, r *http.Request) {
 	pg := s.pg(w)
 	if pg == nil {
 		return
 	}
 	var req struct {
-		Server string `json:"server"`
-		Tool   string `json:"tool"`
+		Server  string `json:"server"`
+		Tool    string `json:"tool"`
+		NewHash string `json:"new_hash"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Server == "" || req.Tool == "" {
-		writeErr(w, 400, "server 和 tool 必填")
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Server == "" || req.Tool == "" || req.NewHash == "" {
+		writeErr(w, 400, "server、tool 和 new_hash 必填（请刷新页面重试）")
 		return
 	}
-	approved, err := pg.ApproveMCPToolQuarantine(req.Server, req.Tool)
+	approved, err := pg.ApproveMCPToolQuarantine(req.Server, req.Tool, req.NewHash)
+	if errors.Is(err, db.ErrQuarantineChanged) {
+		writeErr(w, 409, err.Error())
+		return
+	}
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return

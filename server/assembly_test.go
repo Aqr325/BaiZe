@@ -25,7 +25,7 @@ func TestPinDecision(t *testing.T) {
 		enforce                bool
 		wantBlock, wantAdvance bool
 	}{
-		{"read error -> fail open, advance", "", false, "new", errors.New("db down"), true, false, true},
+		{"read error -> fail open, NO advance (审查高2: 不洗白投毒描述)", "", false, "new", errors.New("db down"), true, false, false},
 		{"no baseline -> trust & advance", "", false, "new", nil, true, false, true},
 		{"unchanged -> pass", "abc", true, "abc", nil, true, false, false},
 		{"changed + enforce -> block", "abc", true, "def", nil, true, true, false},

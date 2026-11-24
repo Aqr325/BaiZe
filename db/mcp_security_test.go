@@ -1,6 +1,7 @@
 package db
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -101,8 +102,17 @@ func TestMCPToolQuarantineLifecycle(t *testing.T) {
 		t.Fatal("quarantine not listed")
 	}
 
+	// CAS guard: approving a stale snapshot the admin no longer sees is refused
+	// (审查【中6】TOCTOU) — the baseline must NOT be advanced.
+	if _, err := d.ApproveMCPToolQuarantine(srv, tool, "stale-hash"); !errors.Is(err, ErrQuarantineChanged) {
+		t.Fatalf("stale approve: want ErrQuarantineChanged, got %v", err)
+	}
+	if base, _, _ := d.GetMCPPinBaseline(srv, tool); base == "bbb" {
+		t.Fatal("stale approve must not advance baseline to bbb")
+	}
+
 	// approve advances baseline to the new hash and clears quarantine
-	approved, err := d.ApproveMCPToolQuarantine(srv, tool)
+	approved, err := d.ApproveMCPToolQuarantine(srv, tool, "bbb")
 	if err != nil || approved == nil {
 		t.Fatalf("approve: %+v %v", approved, err)
 	}
@@ -115,7 +125,7 @@ func TestMCPToolQuarantineLifecycle(t *testing.T) {
 		t.Fatalf("quarantine should be cleared: %+v %v", got, err)
 	}
 	// idempotent approve on missing → nil, no error
-	again, err := d.ApproveMCPToolQuarantine(srv, tool)
+	again, err := d.ApproveMCPToolQuarantine(srv, tool, "bbb")
 	if err != nil || again != nil {
 		t.Fatalf("approve again: %+v %v", again, err)
 	}
