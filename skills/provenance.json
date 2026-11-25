@@ -1,46 +1,46 @@
 {
   "version": 1,
-  "generated": "2026-11-24T23:44:36+08:00",
+  "generated": "2026-11-25T12:08:38+08:00",
   "skills": {
     "agentic-detections": {
       "origin": "https://github.com/ThreatDefence/agentic-attack-detections",
       "license": "MIT",
-      "pinned": "2026-11-24",
-      "tree_hash": "44853107631e9e1f59ff1dd129471460b030f5fc6c991e82fcba488ffbec0db3"
+      "pinned": "2026-11-25",
+      "tree_hash": "adc7626254897002caff749419411fe1f44876fbd9c5d4f0efe8ce04bdcf3ae7"
     },
     "anthropic-cybersecurity": {
       "origin": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills",
-      "pinned": "2026-11-24",
+      "pinned": "2026-11-25",
       "tree_hash": "6984551dd6aead28de1a2ff52f03b28c16cb6baf17bc5973b0041f28745d7170"
     },
     "api-recon": {
       "origin": "local:self-made",
-      "pinned": "2026-11-24",
-      "tree_hash": "6f1720f93c2ed1c8a3279b3a4239aeb33da99ebe895faa11111b5b2376c1ca6a"
+      "pinned": "2026-11-25",
+      "tree_hash": "ae8c0a0aae006977d09bd814b4a184de79eeccab1d8e0dccccae979727e75038"
     },
     "cyber-monster": {
       "origin": "https://github.com/W4L33Dx/Cyber-Monster",
-      "pinned": "2026-11-24",
+      "pinned": "2026-11-25",
       "tree_hash": "5485d4d59c088c0412cbca6acd76f48b6803a1fd99112a2499ba0854906d97bc"
     },
     "pentest-assistant": {
       "origin": "local:self-made",
-      "pinned": "2026-11-24",
+      "pinned": "2026-11-25",
       "tree_hash": "ff815077f71bae708560f2db17d838f78d756f4ff41c933995589f49b13c7cc2"
     },
     "playwright-cli": {
       "origin": "local:self-made",
-      "pinned": "2026-11-24",
+      "pinned": "2026-11-25",
       "tree_hash": "1849c697334f3f6dea46dc610f45b40a34856cd94a2d6d0e973deb34dd87121e"
     },
     "scopesentry": {
       "origin": "local:self-made",
-      "pinned": "2026-11-24",
+      "pinned": "2026-11-25",
       "tree_hash": "da0a0aaed71e2809d997ea09193bff0b56f9bf1d4d74071d0dbc5c7f015d6e62"
     },
     "src-vuln-scanner": {
       "origin": "local:self-made",
-      "pinned": "2026-11-24",
+      "pinned": "2026-11-25",
       "tree_hash": "dc2e8de08b653d84f057e9927c4c1121ebbe58fb20d521d1806af7335b4cdd43"
     }
   }

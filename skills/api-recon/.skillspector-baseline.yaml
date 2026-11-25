@@ -53,5 +53,14 @@ rules:
   - id: "E2"
     reason: "Accepted: benign error-path file reference"
 
-  # Real findings deliberately NOT suppressed (kept visible for remediation):
-  #   SC1  — unpinned dependencies in scripts/package.json (npm audit fix)
+  # SC1 in package-lock.json is npm METADATA, not an unpinned install:
+  #   - scripts/package.json pins the only direct dep, puppeteer-core=25.18.1 (exact).
+  #   - lockfileVersion 3 resolves all 26 packages to exact `version` values, so the
+  #     tree is fully pinned and `npm ci` is reproducible.
+  #   - SC1 fires on the `dependencies` range specs (*package.json / ^X.Y.Z inside
+  #     packages[*]) which are npm *declarations*, not resolved versions.
+  #   Verified 2026-11-25. The real supply-chain control here is the provenance
+  #   tree-hash (skills/provenance.json) + lockfile; no remediation needed.
+  - id: "SC1"
+    path: "*package-lock.json"
+    reason: "False positive: lockfile range metadata; direct dep pinned exact (puppeteer-core 25.18.1) + lockfileVersion 3 pins whole tree"

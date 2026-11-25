@@ -1,11 +1,16 @@
-pyyaml>=6
-sigma-cli>=3.1
-pySigma>=1.0
-pySigma-backend-splunk
-pySigma-backend-kusto
-pySigma-backend-elasticsearch
-yara-python>=4.5
-stix2>=3.0
-scapy>=2.6
-botocore>=1.34
-cfn-lint>=1.0
+# Detection tooling dependencies for the agentic-detections build/validate scripts.
+# Pinned to exact versions (2026-11-25) to satisfy SkillSpector SC1/SC4
+# (unpinned / unresolvable versions). `pkg>=X` resolves to latest anyway, so
+# pinning ==latest locks the install without changing today's behavior; it only
+# prevents silent drift to a newer, untested version on a future install.
+pyyaml==6.0.4
+sigma-cli==4.0.1
+pySigma==2.1.2
+pySigma-backend-splunk==3.0.1
+pySigma-backend-kusto==1.0.1
+pySigma-backend-elasticsearch==2.1.1
+yara-python==4.5.4
+stix2==3.0.2
+scapy==2.8.0
+botocore==1.44.11
+cfn-lint==1.61.0
