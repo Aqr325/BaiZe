@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-
+import { useTranslation } from "react-i18next";
 import { CheckIcon, RefreshCwIcon, ShieldAlertIcon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -11,11 +11,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { api, type McpPinQuarantine, type McpSecurityEvent } from "@/lib/api";
-
-const KIND_LABEL: Record<McpSecurityEvent["kind"], string> = {
-  pin: "描述变更",
-  shadow: "名称冲突",
-};
 
 function fmtTime(ts: string) {
   const d = new Date(ts);
@@ -28,6 +23,7 @@ function fmtTime(ts: string) {
 // approval workflow. Empty state is intentionally quiet: a healthy deployment
 // shows no events and no quarantined tools.
 export function McpSecurityCard() {
+  const { t } = useTranslation();
   const [events, setEvents] = React.useState<McpSecurityEvent[]>([]);
   const [quarantine, setQuarantine] = React.useState<McpPinQuarantine[]>([]);
   const [enforce, setEnforce] = React.useState(true);
@@ -56,10 +52,10 @@ export function McpSecurityCard() {
     setEnforce(next);
     try {
       await api.mcpPinSetConfig(next);
-      toast.success(next ? "已开启描述变更阻断" : "已关闭阻断（仅告警）");
+      toast.success(next ? t("mcpSecurity.toast.enforceOn") : t("mcpSecurity.toast.enforceOff"));
     } catch {
       setEnforce(!next);
-      toast.error("开关更新失败");
+      toast.error(t("mcpSecurity.toast.enforceError"));
     }
   }
 
@@ -68,14 +64,17 @@ export function McpSecurityCard() {
     setApproving(key);
     try {
       await api.mcpPinApprove(item.server_name, item.tool_name, item.new_hash);
-      toast.success("已批准，工具将在下次会话恢复");
+      toast.success(t("mcpSecurity.toast.approved"));
       await load();
     } catch {
-      toast.error("批准失败");
+      toast.error(t("mcpSecurity.toast.approveError"));
     } finally {
       setApproving(null);
     }
   }
+
+  const kindLabel = (kind: McpSecurityEvent["kind"]) =>
+    kind === "pin" ? t("mcpSecurity.kind.pin") : kind === "shadow" ? t("mcpSecurity.kind.shadow") : kind;
 
   return (
     <Card>
@@ -83,22 +82,20 @@ export function McpSecurityCard() {
         <div className="flex items-center gap-2">
           <ShieldAlertIcon className="size-4 text-amber-500" />
           <div>
-            <CardTitle className="text-base">MCP 安全事件</CardTitle>
-            <CardDescription>工具描述变更（疑似投毒）与工具名冲突（跨服务遮蔽）</CardDescription>
+            <CardTitle className="text-base">{t("mcpSecurity.title")}</CardTitle>
+            <CardDescription>{t("mcpSecurity.description")}</CardDescription>
           </div>
         </div>
         <Button size="sm" variant="outline" onClick={() => void load()} disabled={loading}>
           <RefreshCwIcon className={loading ? "size-3.5 animate-spin" : "size-3.5"} />
-          刷新
+          {t("mcpSecurity.refresh")}
         </Button>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2">
           <div className="flex flex-col gap-0.5">
-            <Label htmlFor="mcp-pin-enforce" className="text-sm">描述变更即阻断</Label>
-            <span className="text-xs text-muted-foreground">
-              开启后描述变更的工具将从模型中隐藏，需手动批准；关闭则仅告警
-            </span>
+            <Label htmlFor="mcp-pin-enforce" className="text-sm">{t("mcpSecurity.enforceLabel")}</Label>
+            <span className="text-xs text-muted-foreground">{t("mcpSecurity.enforceHint")}</span>
           </div>
           <Switch id="mcp-pin-enforce" checked={enforce} onCheckedChange={(v) => void toggleEnforce(v)} />
         </div>
@@ -107,14 +104,14 @@ export function McpSecurityCard() {
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2 text-sm font-medium text-red-600 dark:text-red-400">
               <ShieldAlertIcon className="size-4" />
-              已隔离工具（{quarantine.length}）— 待批准
+              {t("mcpSecurity.quarantinedCount", { count: quarantine.length })}
             </div>
             <div className="divide-y rounded-md border border-red-300 dark:border-red-800">
               {quarantine.map((q) => {
                 const key = `${q.server_name}:${q.tool_name}`;
                 return (
                   <div key={key} className="flex flex-col gap-1.5 px-3 py-2 text-sm sm:flex-row sm:items-center sm:gap-3">
-                    <Badge variant="destructive" className="w-fit shrink-0">已隔离</Badge>
+                    <Badge variant="destructive" className="w-fit shrink-0">{t("mcpSecurity.quarantined")}</Badge>
                     <span className="min-w-0 truncate font-mono text-xs">
                       {q.server_name} / {q.tool_name}
                     </span>
@@ -130,7 +127,7 @@ export function McpSecurityCard() {
                       onClick={() => void approve(q)}
                     >
                       <CheckIcon className="size-3.5" />
-                      批准
+                      {t("mcpSecurity.approve")}
                     </Button>
                   </div>
                 );
@@ -140,15 +137,15 @@ export function McpSecurityCard() {
         )}
 
         <div className="flex flex-col gap-2">
-          <div className="text-sm font-medium">事件记录</div>
+          <div className="text-sm font-medium">{t("mcpSecurity.eventsTitle")}</div>
           {events.length === 0 ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">暂无安全事件</p>
+            <p className="py-4 text-center text-sm text-muted-foreground">{t("mcpSecurity.noEvents")}</p>
           ) : (
             <div className="divide-y rounded-md border">
               {events.map((e) => (
                 <div key={e.id} className="flex flex-col gap-1 px-3 py-2 text-sm sm:flex-row sm:items-center sm:gap-3">
                   <Badge variant={e.kind === "pin" ? "destructive" : "secondary"} className="w-fit shrink-0">
-                    {KIND_LABEL[e.kind] ?? e.kind}
+                    {kindLabel(e.kind)}
                   </Badge>
                   <span className="shrink-0 font-mono text-xs text-muted-foreground">{fmtTime(e.created_at)}</span>
                   <span className="min-w-0 truncate font-mono text-xs">

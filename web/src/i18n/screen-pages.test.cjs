@@ -47,7 +47,7 @@ function load(inputFile) {
           ? load(base + "/src/" + id.slice(2))
           : id.startsWith(".")
             ? load(path.resolve(path.dirname(file), id))
-            : id === "react" && file.endsWith("/components/intelligence-panel.tsx")
+            : id === "react" && /(?:^|[\\/])components[\\/]intelligence-panel\.tsx$/.test(file)
               ? {
                   ...React,
                   useState(initial) {
@@ -129,7 +129,11 @@ test("all task detail tabs render their English fixed UI", async () => {
 });
 
 test("intelligence renders real preview responses, populated records and localized errors", async () => {
-  const file = base + "/src/components/intelligence-panel.tsx";
+  // Normalize to the same path `load()` uses internally (path.resolve). On
+  // Windows the raw concat uses forward slashes while load() normalizes to
+  // backslashes, so a mismatched key would silently no-op the useState
+  // snapshot injection and render zero records. Linux CI is unaffected.
+  const file = path.resolve(base + "/src/components/intelligence-panel.tsx");
   const { IntelligencePanel } = load(file);
   const transport = load(base + "/src/lib/mock/handler.ts");
   const original = "原始情报内容";
