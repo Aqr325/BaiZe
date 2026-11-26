@@ -86,6 +86,22 @@ Thumbs.db
 
 # 内嵌前端构建产物备份
 /server/webui/dist.bak-*/
+/server/webui/dist.prev-*/
+/web/.next.prev-*/
+/web/out.prev-*/
+/web/stage-test/
+
+# 本地部署/运维脚本与产物（含绝对路径和本机配置，不入公开仓库）
+/*.exe.bak
+/api-recon-scan.json
+/skills-scan-*.json
+/skills-scan-*.err
+/.golang/
+/deploy-baize-*.bat
+/deploy-baize-*.ps1
+/open-baize.bat
+/restart-baize-now*.bat
+/restart-baize-now*.log.*
 
 # 场景调度器运行日志
 /server/scenario_decisions.log
