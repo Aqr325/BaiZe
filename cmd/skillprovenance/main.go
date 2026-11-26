@@ -33,6 +33,7 @@ var origins = map[string][2]string{
 	"api-recon":               {"local:self-made", ""},
 	"pentest-assistant":       {"local:self-made", ""},
 	"playwright-cli":          {"local:self-made", ""},
+	"red-team-ops":            {"https://github.com/JoasASantos/Awesome-Red-Team-Operations", ""},
 	"scopesentry":             {"local:self-made", ""},
 	"src-vuln-scanner":        {"local:self-made", ""},
 }
