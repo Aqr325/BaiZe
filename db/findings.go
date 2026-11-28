@@ -202,9 +202,9 @@ func scanFindings(rows interface {
 		f := &DBFinding{}
 		var aidsJSON string
 		if err := rows.Scan(&f.ID, &f.TaskID, &f.NodeID, &f.VulnClass, &f.Name, &f.Severity,
-			&f.Summary, &f.Evidence, &f.Worker, &aidsJSON, &f.Status, &f.EvidenceGrade, &f.CreatedAt, &f.TaskDescription, &f.EvidenceVersion, &f.ReportEvidenceVersion, &f.TrafficCount,
+			&f.Summary, &f.Evidence, &f.Worker, &aidsJSON, &f.Status, &f.EvidenceGrade, &f.CreatedAt, &f.TaskDescription, &f.EvidenceVersion, &f.ReportEvidenceVersion,
 			&f.TriggerPoint, &f.DataFlow, &f.ReproConditions, &f.Impact,
-			&f.HarmPrimitive, &f.AssetTier, &f.TriageTier); err != nil {
+			&f.HarmPrimitive, &f.AssetTier, &f.TriageTier, &f.TrafficCount); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(aidsJSON), &f.AssetIDs)
@@ -624,7 +624,9 @@ func (d *DB) ListFindingsForExport(f FindingFilter, ids []int64) ([]*DBFinding, 
 		var aidsJSON string
 		if err := rows.Scan(&f.ID, &f.TaskID, &f.NodeID, &f.VulnClass, &f.Name, &f.Severity,
 			&f.Summary, &f.Evidence, &f.Worker, &aidsJSON, &f.Status, &f.EvidenceGrade, &f.CreatedAt,
-			&f.TaskDescription, &f.EvidenceVersion, &f.ReportEvidenceVersion, &f.TrafficCount, &f.Report); err != nil {
+			&f.TaskDescription, &f.EvidenceVersion, &f.ReportEvidenceVersion,
+			&f.TriggerPoint, &f.DataFlow, &f.ReproConditions, &f.Impact,
+			&f.HarmPrimitive, &f.AssetTier, &f.TriageTier, &f.TrafficCount, &f.Report); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(aidsJSON), &f.AssetIDs)
@@ -791,8 +793,9 @@ func (d *DB) GetFinding(id int64) (*DBFinding, error) {
 		WHERE f.id = $1`, id).Scan(
 		&f.ID, &f.TaskID, &f.NodeID, &f.VulnClass, &f.Name, &f.Severity,
 		&f.Summary, &f.Evidence, &f.Worker, &aidsJSON, &f.Status, &f.EvidenceGrade, &f.CreatedAt,
-		&f.TaskDescription, &f.EvidenceVersion, &f.ReportEvidenceVersion, &f.TrafficCount,
-		&f.TriggerPoint, &f.DataFlow, &f.ReproConditions, &f.Impact, &f.Report, &reportConv)
+		&f.TaskDescription, &f.EvidenceVersion, &f.ReportEvidenceVersion,
+		&f.TriggerPoint, &f.DataFlow, &f.ReproConditions, &f.Impact,
+		&f.HarmPrimitive, &f.AssetTier, &f.TriageTier, &f.TrafficCount, &f.Report, &reportConv)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

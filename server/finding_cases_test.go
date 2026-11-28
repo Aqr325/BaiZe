@@ -33,7 +33,7 @@ func testCaseServer(t *testing.T) (*Server, int64, []int64) {
 	}
 	ids := []int64{}
 	for _, sev := range []string{"high", "medium", "low"} {
-		id, err := pg.AddFinding(task.ID, 0, "IDOR", "orders", sev, "same endpoint", "proof "+sev, "worker", nil)
+		id, err := pg.AddFinding(task.ID, 0, "IDOR", "orders", sev, "same endpoint", "proof "+sev, "worker", nil, "", "", "", "")
 		if err != nil {
 			t.Fatal(err)
 		}

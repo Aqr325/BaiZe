@@ -223,7 +223,7 @@ func TestSideTaskContextFallbackForPausedTask(t *testing.T) {
 	if _, err := task.Store.AppendActivity(db.Activity{NodeID: &iid, Worker: "worker", Kind: "result", Summary: "发现对象读取缺少租户校验"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.m.pg.AddFinding(id, iid, "IDOR", "跨租户读取", db.SeverityHigh, "读取接口返回其他租户对象", "响应中出现其他租户 tenant_id", "worker", nil); err != nil {
+	if _, err := f.m.pg.AddFinding(id, iid, "IDOR", "跨租户读取", db.SeverityHigh, "读取接口返回其他租户对象", "响应中出现其他租户 tenant_id", "worker", nil, "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	path := "/api/tasks/" + task.ID + "/chat/side-questions"
@@ -304,7 +304,7 @@ func TestSideTaskSyntheticSnapshotRebuildsCurrentEvidence(t *testing.T) {
 	if _, err := task.Store.AppendActivity(db.Activity{NodeID: &iid, Worker: "worker", Kind: "result", Summary: "new worker found an unvalidated redirect"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.m.pg.AddFinding(id, iid, "OPEN_REDIRECT", "redirect validation", db.SeverityMedium, "redirect accepts an external target", "worker evidence marker", "worker", nil); err != nil {
+	if _, err := f.m.pg.AddFinding(id, iid, "OPEN_REDIRECT", "redirect validation", db.SeverityMedium, "redirect accepts an external target", "worker evidence marker", "worker", nil, "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	e := decodeSide(t, f.call(t, "POST", path, map[string]string{"question": "最新发现是什么？", "client_request_id": "rebuild-current"}, 202))

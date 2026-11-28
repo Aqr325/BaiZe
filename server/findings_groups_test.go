@@ -37,7 +37,7 @@ func TestFindingGroupsNoResultStopReason(t *testing.T) {
 		}
 	})
 	for _, taskID := range []int64{id, 0} {
-		if _, err := m.pg.AddFinding(taskID, 0, marker, "", db.SeverityHigh, "", "", "test", nil); err != nil {
+		if _, err := m.pg.AddFinding(taskID, 0, marker, "", db.SeverityHigh, "", "", "test", nil, "", "", "", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -146,7 +146,7 @@ func TestFindingGroupsReturnsTaskBucketsAndNormalizesPagination(t *testing.T) {
 		{taskB.ID, db.SeverityLow},
 	} {
 		if _, err := m.pg.AddFinding(mustTaskID(t, seed.taskID), 0, marker, "", seed.severity,
-			fmt.Sprintf("finding %d", i), "", "test", nil); err != nil {
+			fmt.Sprintf("finding %d", i), "", "test", nil, "", "", "", ""); err != nil {
 			t.Fatalf("AddFinding[%d]: %v", i, err)
 		}
 	}
@@ -239,7 +239,7 @@ func TestDeepenFindingCreatesAuditedIntentAndRevivesTask(t *testing.T) {
 	}
 	taskID, _ := strconv.ParseInt(task.ID, 10, 64)
 	defer m.pg.DeleteTask(taskID)
-	findingID, err := m.pg.AddFinding(taskID, findingNodeID, "test", "source", db.SeverityHigh, "source", "", "worker", nil)
+	findingID, err := m.pg.AddFinding(taskID, findingNodeID, "test", "source", db.SeverityHigh, "source", "", "worker", nil, "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +369,7 @@ func TestDeepenAdmissionFailureDiscardsFollowUpIntent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	findingID, err := m.pg.AddFinding(taskID, findingNodeID, "test", "source", db.SeverityHigh, "source", "", "worker", nil)
+	findingID, err := m.pg.AddFinding(taskID, findingNodeID, "test", "source", db.SeverityHigh, "source", "", "worker", nil, "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

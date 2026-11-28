@@ -73,7 +73,8 @@ func TestSubagentLedgerRoundTrip(t *testing.T) {
 	if got.State != "SUCCEEDED" || got.ResultHash != "deadbeef" || got.Summary != "all good" {
 		t.Fatalf("result not persisted: %+v", got)
 	}
-	if got.UsageMetadata["api_calls"] != 3 {
+	// JSON numbers decode into float64 when unmarshalling into map[string]any.
+	if got.UsageMetadata["api_calls"] != float64(3) {
 		t.Fatalf("usage not round-tripped: %v", got.UsageMetadata)
 	}
 

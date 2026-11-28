@@ -49,17 +49,17 @@ func TestTasksCompareDiff(t *testing.T) {
 	}
 
 	// A: SQL注入(固定) + XSS(将修复)
-	if _, err := m.pg.AddFinding(ta.ID, 0, "sqli", "SQL 注入", "high", "s", "e", "t", nil); err != nil {
+	if _, err := m.pg.AddFinding(ta.ID, 0, "sqli", "SQL 注入", "high", "s", "e", "t", nil, "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.pg.AddFinding(ta.ID, 0, "xss", "存储型 XSS", "medium", "s", "e", "t", nil); err != nil {
+	if _, err := m.pg.AddFinding(ta.ID, 0, "xss", "存储型 XSS", "medium", "s", "e", "t", nil, "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	// B: SQL注入(复现) + 新增 SSRF
-	if _, err := m.pg.AddFinding(tb.ID, 0, "sqli", "SQL 注入", "high", "s", "e", "t", nil); err != nil {
+	if _, err := m.pg.AddFinding(tb.ID, 0, "sqli", "SQL 注入", "high", "s", "e", "t", nil, "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.pg.AddFinding(tb.ID, 0, "ssrf", "内网 SSRF", "critical", "s", "e", "t", nil); err != nil {
+	if _, err := m.pg.AddFinding(tb.ID, 0, "ssrf", "内网 SSRF", "critical", "s", "e", "t", nil, "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 

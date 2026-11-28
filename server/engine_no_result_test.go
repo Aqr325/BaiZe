@@ -98,7 +98,7 @@ func TestNoResultCheckpointAndRevival(t *testing.T) {
 				t.Fatal(err)
 			}
 			if tc.severity != "" {
-				if _, err := m.pg.AddFinding(id, 0, "test", "test", tc.severity, "", "", "test", nil); err != nil {
+				if _, err := m.pg.AddFinding(id, 0, "test", "test", tc.severity, "", "", "test", nil, "", "", "", ""); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -128,7 +128,7 @@ func TestNoResultCheckpointAndRevival(t *testing.T) {
 				return
 			}
 			// A finding arriving during settling cannot undo the decision.
-			if _, err := m.pg.AddFinding(id, 0, "test", "late", "high", "", "", "test", nil); err != nil {
+			if _, err := m.pg.AddFinding(id, 0, "test", "late", "high", "", "", "test", nil, "", "", "", ""); err != nil {
 				t.Fatal(err)
 			}
 			provider := &scriptedLLMProvider{err: errors.New("test final planner unavailable")}
@@ -182,7 +182,7 @@ func TestNoResultCoordinatorStopsAndReleasesMarker(t *testing.T) {
 	if stop, err := e.checkNoResultCheckpoint(task); err != nil || !stop {
 		t.Fatalf("initial decision: %v, %v", stop, err)
 	}
-	if _, err := m.pg.AddFinding(id, 0, "test", "late after decision", "high", "", "", "test", nil); err != nil {
+	if _, err := m.pg.AddFinding(id, 0, "test", "late after decision", "high", "", "", "test", nil, "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	stored, err := m.pg.GetTask(id)
