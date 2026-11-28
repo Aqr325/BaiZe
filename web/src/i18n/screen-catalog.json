@@ -2921,6 +2921,19 @@
     "Start from a finding and save an independent retest conclusion."
   ],
   "screen.repeaterDestination": ["目标", "Destination"],
+  "screen.repeaterCompare": ["对比响应", "Compare responses"],
+  "screen.repeaterCompareTitle": ["响应对比", "Response comparison"],
+  "screen.repeaterCompareSubtitle": [
+    "选择历史两次响应，逐行对比请求变更带来的响应变化",
+    "Pick two responses from history and diff them line by line"
+  ],
+  "screen.repeaterCompareBaseline": ["基线（前一次）", "Baseline (earlier)"],
+  "screen.repeaterCompareTarget": ["对比（后一次）", "Target (later)"],
+  "screen.repeaterCompareEmpty": [
+    "该标签页暂无两次响应可对比——先发送至少两次请求",
+    "No two responses to compare yet — send the request at least twice"
+  ],
+  "screen.repeaterComparePickTwo": ["请选择两次不同的响应进行对比", "Pick two different responses to compare"],
   "builtinAgentDescription.0": [
     "把渗透任务目标拆解成若干独立、可验证的子目标。",
     "Split test goals into independent, verifiable subgoals."
@@ -3017,6 +3030,15 @@
   "screen.insights.sev.low": ["低危", "Low"],
   "screen.insights.sev.info": ["信息", "Info"],
   "screen.insights.sevTotal": ["当前累计确认发现 {{v0}} 个", "{{v0}} confirmed findings in total."],
+  "screen.insights.triageTitle": ["证据驱动分级分布", "Evidence-driven triage distribution"],
+  "screen.insights.triageSubtitle": [
+    "可处置发现的危害原语 / 资产分层 / 处置优先级",
+    "Harm primitive / asset tier / triage tier of actionable findings"
+  ],
+  "screen.insights.triageTier": ["处置优先级（1 最优先 → 6 跟踪）", "Triage tier (1 most urgent → 6 follow-up)"],
+  "screen.insights.triageHarm": ["危害原语", "Harm primitive"],
+  "screen.insights.triageAsset": ["资产分层", "Asset tier"],
+  "screen.insights.triageEmpty": ["暂无可处置发现", "No actionable findings yet"],
   "screen.insights.tasksTrend": ["任务趋势（创建 / 完成 / 失败）", "Task trend (created / done / failed)"],
   "screen.insights.tasksCreated": ["创建", "Created"],
   "screen.insights.tasksDone": ["完成", "Done"],

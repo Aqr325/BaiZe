@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	pgdb "github.com/Autumn-27/baize/db"
 )
 
 type tasksInsightDay struct {
@@ -154,6 +156,10 @@ func (s *Server) getInsights(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 4) 证据驱动分级快照：harm_primitive / asset_tier / triage_tier 分布。
+	// 口径：可处置发现（排除误报/忽略/重复），与复核队列一致。
+	out["triage_distribution"] = s.triageDistribution(pg)
+
 	// 3) LLM Token 用量：activity 表按日汇总。
 	tokensByDay := map[string]*tokensInsightDay{}
 	for _, k := range dateKeys {
@@ -184,4 +190,51 @@ func (s *Server) getInsights(w http.ResponseWriter, r *http.Request) {
 	out["tokens_by_day"] = tokensList
 
 	writeJSON(w, 200, out)
+}
+
+// triageDistribution 聚合可处置发现（排除误报/忽略/重复）的三维分级分布：
+// harm_primitive（危害原语）、asset_tier（资产分层）、triage_tier（处置优先级）。
+// 返回 map[维度]map[键]计数，键为字符串；triage_tier 用十进制字符串（"1".."6"）。
+func (s *Server) triageDistribution(pg *pgdb.DB) map[string]map[string]int {
+	out := map[string]map[string]int{
+		"harm_primitive": {},
+		"asset_tier":     {},
+		"triage_tier":    {},
+	}
+	if pg == nil {
+		return out
+	}
+	const actionable = `WHERE status NOT IN ('false_positive','ignored','duplicate')`
+
+	if rows, err := pg.Query(`SELECT harm_primitive, count(*) FROM findings ` + actionable + ` GROUP BY 1`); err == nil {
+		for rows.Next() {
+			var k string
+			var n int
+			if rows.Scan(&k, &n) == nil {
+				out["harm_primitive"][k] = n
+			}
+		}
+		rows.Close()
+	}
+	if rows, err := pg.Query(`SELECT asset_tier, count(*) FROM findings ` + actionable + ` GROUP BY 1`); err == nil {
+		for rows.Next() {
+			var k string
+			var n int
+			if rows.Scan(&k, &n) == nil {
+				out["asset_tier"][k] = n
+			}
+		}
+		rows.Close()
+	}
+	if rows, err := pg.Query(`SELECT triage_tier, count(*) FROM findings ` + actionable + ` GROUP BY 1`); err == nil {
+		for rows.Next() {
+			var k int
+			var n int
+			if rows.Scan(&k, &n) == nil {
+				out["triage_tier"][strconv.Itoa(k)] = n
+			}
+		}
+		rows.Close()
+	}
+	return out
 }

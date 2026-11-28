@@ -20,7 +20,7 @@ func testCaseServer(t *testing.T) (*Server, int64, []int64) {
 	t.Helper()
 	dsn, err := db.TestDSN()
 	if err != nil {
-		t.Fatal(err)
+		t.Skipf("no test database (%v) — skipping", err)
 	}
 	pg, err := db.Open(dsn)
 	if err != nil {

@@ -29,6 +29,7 @@ import {
   parseHeadersText,
   parseRawRequest,
 } from "./repeater-http";
+import { CompareButton } from "./repeater-response-diff";
 import { newId, type RepeaterTab } from "./repeater-state";
 import { useRepeaterStore } from "./repeater-store";
 import { RepeaterTextPane } from "./repeater-text-pane";
@@ -147,6 +148,7 @@ export function RepeaterEditor({ tab }: { tab: RepeaterTab }) {
           <Settings2 data-icon="inline-start" />
           {ui("screen.4b89afb659e056")}
         </Button>
+        <CompareButton tab={tab} />
         <Button className="ml-auto" disabled={busy} onClick={() => void send()}>
           <SendIcon data-icon="inline-start" />
           {busy ? ui("screen.364970d8168ca5") : ui("screen.edecf0ae6e5144")}

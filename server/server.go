@@ -1042,6 +1042,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/exploration/findings/retests/active", s.listActiveFindingRetests)
 	mux.HandleFunc("POST /api/exploration/findings/{id}/retests", s.startFindingRetest)
 	mux.HandleFunc("PATCH /api/exploration/findings/{id}", s.patchFinding)
+	mux.HandleFunc("POST /api/exploration/findings/batch-status", s.batchFindingStatus)
 	mux.HandleFunc("DELETE /api/exploration/findings/{id}", s.deleteFinding)
 	mux.HandleFunc("GET /api/exploration/intents", s.intents)
 	mux.HandleFunc("GET /api/exploration/graph", s.explorationGraph)
@@ -2807,6 +2808,38 @@ func (s *Server) patchFinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, findingFromDB(f, s.resolveAssetIDs(f.AssetIDs)))
+}
+
+// batchFindingStatus 批量更新多个漏洞的处置状态（复核队列「批量确认/驳回」）。
+// POST /api/exploration/findings/batch-status
+// 请求体：{"ids":[1,2,3],"status":"confirmed"}；不存在的 id 跳过不计入 updated。
+func (s *Server) batchFindingStatus(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs    []int64 `json:"ids"`
+		Status string  `json:"status"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeErr(w, 400, "bad json: "+err.Error())
+		return
+	}
+	if len(body.IDs) == 0 {
+		writeErr(w, 400, "ids required")
+		return
+	}
+	if len(body.IDs) > 500 {
+		writeErr(w, 400, "too many ids (max 500)")
+		return
+	}
+	if !db.ValidFindingStatus(body.Status) {
+		writeErr(w, 400, "bad status: "+body.Status)
+		return
+	}
+	updated, err := s.m.pg.SetFindingsStatusBatch(r.Context(), body.IDs, body.Status)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]int{"updated": updated})
 }
 
 // deleteFinding removes a finding (findings row + originating exploration node).

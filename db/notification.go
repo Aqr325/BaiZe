@@ -470,6 +470,32 @@ func (d *DB) SetFindingStatusWithNotify(ctx context.Context, id int64, status st
 	return from, found, notified, err
 }
 
+// SetFindingsStatusBatch 在**单事务**内批量更新多个漏洞的状态，并为每个
+// 实际变更登记推送事件。任一 id 不存在时跳过（不报错、不计数），单条失败则
+// 整体回滚并返回错误——复核队列的「批量确认/驳回」需要原子语义。
+//
+// 返回实际更新的条数（排除不存在与状态未变的 id）。
+func (d *DB) SetFindingsStatusBatch(ctx context.Context, ids []int64, status string) (updated int, err error) {
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }() //nolint:errcheck // 提交成功后回滚是 no-op
+	for _, id := range ids {
+		_, found, changed, _, txErr := SetFindingStatusTx(ctx, tx, id, status)
+		if txErr != nil {
+			return updated, txErr
+		}
+		if found && changed {
+			updated++
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return updated, nil
+}
+
 // SetFindingStatusTx 在**调用方的事务**内更新漏洞状态并登记状态变更推送事件。
 //
 // 抽成事务级函数是为了让所有改状态的路径共用同一套语义——此前只有
