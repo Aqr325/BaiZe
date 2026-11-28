@@ -68,6 +68,10 @@ type Node struct {
 	FindingID     int64           `json:"finding_id,omitempty"` // populated by finding-aware reads; never inferred from ID
 	FindingNodeID int64           `json:"finding_node_id,omitempty"`
 	TrafficCount  int             `json:"traffic_count,omitempty"`
+	// 证据驱动分级（finding-aware reads 填充；Agent 回看漏洞时必须能看到自己产出的分级）
+	HarmPrimitive string `json:"harm_primitive,omitempty"`
+	AssetTier     string `json:"asset_tier,omitempty"`
+	TriageTier    int    `json:"triage_tier,omitempty"`
 	ID            int64           `json:"id"`
 	Kind          string          `json:"kind"`
 	Payload       json.RawMessage `json:"payload"`

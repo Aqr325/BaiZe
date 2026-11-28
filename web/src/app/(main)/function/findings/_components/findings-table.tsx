@@ -19,6 +19,8 @@ import { useTranslation } from "react-i18next";
 import { CopyButton } from "@/components/copy-button";
 import { EvidenceGradeBadge } from "@/components/evidence-grade-badge";
 import { FindingCaseMembers, FindingSeverityCounts } from "@/components/finding-case-list";
+import { harmLabel, triageLabel, triageTone } from "@/lib/finding-triage";
+import { toneClasses } from "@/lib/status";
 import { Markdown } from "@/components/markdown";
 import { StatusBadge } from "@/components/status-badge";
 import {
@@ -298,6 +300,15 @@ export function FindingsTable({
                       {f.traffic_count ?? 0} {ui("screen.f004f1d84cf962")}
                     </Badge>
                     <EvidenceGradeBadge grade={f.evidence_grade} dot />
+                    {f.triage_tier ? (
+                      <Badge
+                        variant="outline"
+                        className={toneClasses[triageTone(f.triage_tier)]}
+                        title={`${triageLabel(f.triage_tier)} · ${harmLabel(f.harm_primitive)}${f.asset_tier ? ` · 资产 Tier ${f.asset_tier.toUpperCase()}` : ""}`}
+                      >
+                        {triageLabel(f.triage_tier)}
+                      </Badge>
+                    ) : null}
                   </div>
                 </TableCell>
                 <TableCell>

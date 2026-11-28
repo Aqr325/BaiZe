@@ -479,19 +479,22 @@ func (s *ExplorationStore) PopulateFindingTrafficIDs(nodes []*Node) error {
 	if len(args) == 0 {
 		return nil
 	}
-	rows, err := s.db.Query(`SELECT f.id,f.node_id,(SELECT count(*) FROM finding_traffic_bindings b WHERE b.finding_id=f.id) FROM findings f WHERE f.node_id IN (`+strings.Join(placeholders, ",")+`)`, args...)
+	// 同一条查询顺带取回证据驱动分级三列，避免 Agent 回看漏洞时逐条查库。
+	rows, err := s.db.Query(`SELECT f.id,f.node_id,(SELECT count(*) FROM finding_traffic_bindings b WHERE b.finding_id=f.id),f.harm_primitive,f.asset_tier,f.triage_tier FROM findings f WHERE f.node_id IN (`+strings.Join(placeholders, ",")+`)`, args...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var findingID, nodeID int64
-		var count int
-		if err := rows.Scan(&findingID, &nodeID, &count); err != nil {
+		var count, triageTier int
+		var harmPrimitive, assetTier string
+		if err := rows.Scan(&findingID, &nodeID, &count, &harmPrimitive, &assetTier, &triageTier); err != nil {
 			return err
 		}
 		n := byID[nodeID]
 		n.FindingID, n.FindingNodeID, n.TrafficCount = findingID, nodeID, count
+		n.HarmPrimitive, n.AssetTier, n.TriageTier = harmPrimitive, assetTier, triageTier
 	}
 	return rows.Err()
 }

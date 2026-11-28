@@ -904,11 +904,17 @@ func compactFinding(n *db.Node) map[string]any {
 	if sv, ok := p["severity"]; ok && sv != nil && sv != "" {
 		m["severity"] = sv
 	}
+	// 证据驱动分级：由 PopulateFindingTrafficIDs 从 findings 表填充，Agent 必须能看到自己产出的分级
+	if n.TriageTier > 0 {
+		m["triage_tier"] = n.TriageTier
+		m["harm_primitive"] = n.HarmPrimitive
+		m["asset_tier"] = n.AssetTier
+	}
 	return m
 }
 
 func (t *ToolSet) listFindings() actool.CoreTool {
-	return t.readExpTool("list_findings", "列本任务及直接关联任务的【确认漏洞】(紧凑：id+task_id+intent_id+vulnclass+severity+摘要+状态)。关联任务条目带 source_task_id/inherited=true 且只读。这里只含漏洞；普通探索事实用 list_facts，详情用 node_detail(id)。",
+	return t.readExpTool("list_findings", "列本任务及直接关联任务的【确认漏洞】(紧凑：id+task_id+intent_id+vulnclass+severity+triage_tier/harm_primitive/asset_tier+摘要+状态)。triage_tier 1 最优先→6 跟踪；harm_primitive 是危害原语（rce/auth_bypass/...）；asset_tier 是受影响资产最高分层 s/a/b/c。关联任务条目带 source_task_id/inherited=true 且只读。这里只含漏洞；普通探索事实用 list_facts，详情用 node_detail(id)。",
 		obj(map[string]any{}),
 		func(context.Context, json.RawMessage) (actool.Result, error) {
 			f, _ := t.ts.ListByKindWithSources(db.KindFinding, 500)

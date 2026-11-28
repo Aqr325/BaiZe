@@ -14,35 +14,8 @@ import type { Finding } from "@/lib/types";
 // （模型仅自述、无独立验证）与 status=false_positive 汇聚成「待人工复核」队列，
 // 作为复核与回喂团队规则的入口。人与 AI 用同一套证据链标准（skills/evidence-chain）。
 
-// 证据驱动分类/分级展示（借 Today Security 方法论，与 db/evidence_triage.go 对齐）。
-const HARM_LABEL: Record<string, string> = {
-  rce: "远程代码执行",
-  auth_bypass: "认证绕过",
-  privilege_escalation: "提权/逃逸",
-  unauthorized: "未授权访问",
-  file_write: "任意文件写/读",
-  injection: "注入/跨站",
-  ssrf: "SSRF",
-  info_leak: "信息泄露",
-  dos: "拒绝服务",
-  other: "其他",
-};
-
-const TRIAGE_LABEL: Record<number, string> = {
-  1: "在野利用·未见修复",
-  2: "在野利用",
-  3: "在野利用·已有修复",
-  4: "高危 PoC 公开·未见修复",
-  5: "核心资产严重预警",
-  6: "跟踪",
-};
-
-function harmLabel(p?: string) {
-  return (p && HARM_LABEL[p]) || "其他";
-}
-function triageLabel(t?: number) {
-  return (t && TRIAGE_LABEL[t]) || "跟踪";
-}
+// 证据驱动分类/分级展示：标签映射抽到 lib/finding-triage，与 findings 主列表共用。
+import { harmLabel, triageLabel } from "@/lib/finding-triage";
 
 // 防抖排序：triage_tier 升序（越优先越靠前）；同档按 ts 升序（证据首次出现时间
 // 固定，普通后续报道不打乱顺序——只有新证据升档才上移）。见 db/evidence_triage.go。

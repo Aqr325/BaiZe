@@ -6,6 +6,8 @@
 
 ### 新增
 
+- 证据驱动分级闭环：Agent 的 `list_findings` 只读工具现返回 `triage_tier`/`harm_primitive`/`asset_tier` 三字段——`db.Node` 增加对应字段，`PopulateFindingTrafficIDs` 在同一条查询中带回分级（零额外查询），`compactFinding` 输出给模型，Agent 能回看自己产出的分级。前端 findings 主列表新增分级徽章（带紧急度色调），标签映射抽到 `lib/finding-triage.ts` 与复核队列卡共用，避免两处文案漂移。新增 `TestPopulateFindingTrafficIDsEnrichesTriage` 单测。
+
 - 注册 Scrapling（D4Vinci/Scrapling, BSD-3）官方 MCP 服务器为第 13 个 MCP 数据源：`scrapling`（stdio, `cmd /c uvx scrapling@latest mcp`），默认禁用、按需启用。用于自适应网页采集、Stealth 反爬绕过与网页转 Markdown，支撑证据链 `remote_verified` 远端取证与 RAG 语料采集。种子写入 `db.go seedPojunMCPServers`，与前端 MOCK 镜像 `web/src/lib/mock/data.ts`（id 2377）同步。
 - 证据驱动分类/分级（借 Today Security 方法论）：新增 `db/evidence_triage.go` 纯函数核心——危害原语分类（HarmPrimitive）、投机/未证实措辞检测（SpeculativeMarkers/IsSpeculative）、多 CVE 综述抗串烧检测（IsMultiCVESummary）、资产分层（AssetTier/MaxAssetTier）、五档处置分级（TriageTier，含防抖语义）、SSVC 式头条排序（HeadlineRank）、重力衰减（GravityDecay）。`findings` 表新增 `harm_primitive`/`asset_tier`/`triage_tier` 三列（插入时由纯函数计算，best-effort 不阻断入库）；`report_finding` 加准入守卫（投机措辞降级 severity 至 medium、多 CVE 综述拒绝）；复核队列卡按 `triage_tier` 稳定排序 + 危害原语/分级徽章 + 「最该处理」头条行；顺带修复历史遗留的 `AddFinding`/`AddFindingGrade` 测试签名不一致（9 参→13 参）。
 
