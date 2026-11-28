@@ -247,11 +247,13 @@ func extractToken(r *http.Request) string {
 }
 
 // requireAuth wraps h with JWT validation.
-// /api/auth/*, /api/health and the Basic Auth gate check are exempt.
+// /api/auth/*, /api/health, the Basic Auth gate check and the A2A endpoint
+// (/a2a — a machine-to-machine peer-gateway call protected by its own Bearer
+// token inside the A2A handler) are exempt from the browser JWT check.
 func (s *Server) requireAuth(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		if strings.HasPrefix(p, "/api/auth/") || p == "/api/health" || p == "/api/basic-auth/check" {
+		if strings.HasPrefix(p, "/api/auth/") || p == "/api/health" || p == "/api/basic-auth/check" || strings.HasPrefix(p, "/a2a") {
 			h.ServeHTTP(w, r)
 			return
 		}

@@ -101,6 +101,11 @@ type Target struct {
 	PeerID           string
 	InstallationID   string
 	CapabilityDigest string // sha256 hex, peers only
+	// GatewayURL is the peer's A2A JSON-RPC endpoint (e.g. https://peer/a2a).
+	// Peers only; empty means the peer cannot yet be reached cross-gateway.
+	GatewayURL string
+	// PeerToken is the optional Bearer token for the peer's A2A endpoint.
+	PeerToken string
 }
 
 // IsPeer reports whether the target is a cross-gateway peer member.
@@ -254,6 +259,9 @@ func ValidateMember(raw Member, index int, knownProfiles map[string]bool) (Membe
 		}
 		if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(raw.Target.CapabilityDigest) {
 			return Member{}, fmt.Errorf("member %d capability_digest must be a sha256 digest", index)
+		}
+		if raw.Target.GatewayURL != "" && !regexp.MustCompile(`^https?://`).MatchString(raw.Target.GatewayURL) {
+			return Member{}, fmt.Errorf("member %d gateway_url must be an http(s) endpoint", index)
 		}
 	default:
 		return Member{}, fmt.Errorf("member %d target kind must be local or peer", index)

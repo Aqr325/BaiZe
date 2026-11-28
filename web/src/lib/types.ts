@@ -2206,6 +2206,8 @@ export interface GroupTarget {
   peer_id?: string;
   installation_id?: string;
   capability_digest?: string;
+  gateway_url?: string; // peer 的 A2A JSON-RPC 端点(如 https://peer/a2a)
+  peer_token?: string; // peer 端点的 Bearer token
 }
 
 export interface GroupMember {
@@ -2260,5 +2262,18 @@ export interface GroupRoomDetail {
 export interface GroupCreateInput {
   name: string;
   image?: string;
-  members: { profile: string; handle: string; display_name?: string; llm_profile_id?: number; agent_key?: string }[];
+  routing?: "everyone" | "lead";
+  lead_member_id?: string;
+  members: {
+    profile: string;
+    handle: string;
+    display_name?: string;
+    llm_profile_id?: number;
+    agent_key?: string;
+    kind?: "local" | "peer";
+    peer_id?: string;
+    gateway_url?: string;
+    peer_token?: string;
+    capability_digest?: string;
+  }[];
 }

@@ -910,6 +910,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/groups/{id}/stop", s.groupStop)
 	mux.HandleFunc("POST /api/groups/{id}/continue", s.groupContinue)
 	mux.HandleFunc("POST /api/groups/{id}/disband", s.groupDisband)
+	// 跨网关 A2A 端点：peer gateway 调它执行 peer Bot turn（Bearer 保护，豁免 JWT）。
+	mux.Handle("/a2a", s.a2aHandler())
 	mux.HandleFunc("GET /api/schedules", s.listSchedules)
 	mux.HandleFunc("POST /api/schedules", s.createSchedule)
 	mux.HandleFunc("GET /api/schedules/{id}", s.getSchedule)

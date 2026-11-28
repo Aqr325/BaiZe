@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Autumn-27/baize/agent"
+	"github.com/Autumn-27/baize/agent/a2a"
 	"github.com/Autumn-27/baize/agent/group"
 	"github.com/Autumn-27/baize/db"
 )
@@ -33,21 +35,34 @@ type groupMemberInput struct {
 	DisplayName  string `json:"display_name"`
 	LLMProfileID int64  `json:"llm_profile_id"`
 	AgentKey     string `json:"agent_key"` // 可选:绑定现有 agent,成员 turn 用其 system prompt
+	// peer 跨网关(A2A,可选):kind="peer" 时成员由其远端 gateway 执行。
+	Kind             string `json:"kind"` // "local"(默认) | "peer"
+	PeerID           string `json:"peer_id"`
+	GatewayURL       string `json:"gateway_url"`       // 远端 A2A 端点(如 https://peer/a2a)
+	PeerToken        string `json:"peer_token"`        // 远端 Bearer token
+	CapabilityDigest string `json:"capability_digest"` // 64 hex;空则服务端生成
 }
 
 type groupCreateInput struct {
 	Name    string             `json:"name"`
 	Image   string             `json:"image"`
 	Members []groupMemberInput `json:"members"`
+	// Routing: "everyone"(默认,串行轮流) | "lead"(lead 路由,hermes v0.22.7)。
+	Routing      string `json:"routing"`
+	LeadMemberID string `json:"lead_member_id"` // routing=lead 时的 lead 成员 handle
 }
 
 // ---- room lifecycle ------------------------------------------------------
 
-// groupProfiles returns the roster profiles (all local on a single gateway).
+// groupProfiles returns the local roster profiles (peer members run on their
+// own gateway and are excluded from the local-profile validation set).
 func (s *Server) groupProfiles(room *db.GroupRoom) []string {
 	seen := map[string]bool{}
 	out := []string{}
 	for _, m := range room.Members {
+		if m.Target != nil && m.Target.IsPeer() {
+			continue
+		}
 		if !seen[m.Profile] {
 			seen[m.Profile] = true
 			out = append(out, m.Profile)
@@ -122,6 +137,10 @@ func (s *Server) groupCreate(w http.ResponseWriter, r *http.Request) {
 	room := group.Room{
 		RoomID: roomID, Name: strings.TrimSpace(in.Name),
 		GatewayID: "local", AuthorityEpoch: 1,
+		Routing: "everyone",
+	}
+	if in.Routing == "lead" {
+		room.Routing = "lead"
 	}
 	llmByMember := map[string]int64{}
 	agentByMember := map[string]string{}
@@ -132,9 +151,25 @@ func (s *Server) groupCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		profile := strings.TrimSpace(mi.Profile)
 		handle := strings.TrimPrefix(strings.TrimSpace(mi.Handle), "@")
+		target := group.LocalTarget(profile)
+		if mi.Kind == "peer" {
+			digest := strings.TrimSpace(mi.CapabilityDigest)
+			if digest == "" {
+				sum := sha256.Sum256([]byte(newGroupID()))
+				digest = hex.EncodeToString(sum[:])
+			}
+			target = &group.Target{
+				Kind:             "peer",
+				Profile:          profile,
+				PeerID:           strings.TrimSpace(mi.PeerID),
+				GatewayURL:       strings.TrimSpace(mi.GatewayURL),
+				PeerToken:        mi.PeerToken,
+				CapabilityDigest: digest,
+			}
+		}
 		room.Members = append(room.Members, group.Member{
 			MemberID: "gm-" + newGroupID(), Profile: profile, Handle: handle,
-			DisplayName: mi.DisplayName, Target: group.LocalTarget(profile),
+			DisplayName: mi.DisplayName, Target: target,
 		})
 		memberID := room.Members[len(room.Members)-1].MemberID
 		if mi.LLMProfileID > 0 {
@@ -150,6 +185,23 @@ func (s *Server) groupCreate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			agentByMember[memberID] = k
+		}
+	}
+	if room.Routing == "lead" {
+		leadHandle := strings.TrimPrefix(strings.TrimSpace(in.LeadMemberID), "@")
+		if leadHandle == "" {
+			writeErr(w, 400, "lead 路由需要指定 lead_member_id")
+			return
+		}
+		for _, m := range room.Members {
+			if strings.EqualFold(m.Handle, leadHandle) {
+				room.LeadMemberID = m.MemberID
+				break
+			}
+		}
+		if room.LeadMemberID == "" {
+			writeErr(w, 400, "lead_member_id 未匹配任何成员")
+			return
 		}
 	}
 	if err := s.m.pg.CreateGroupRoom(room, in.Image, llmByMember, agentByMember); err != nil {
@@ -374,6 +426,32 @@ func (s *Server) runGroupTurnLoop(ctx context.Context, roomID string) {
 		case group.StatusSettled, group.StatusBounded:
 			s.appendGroupEvent(roomID, roomActivityEvent(dec, roomID))
 			return
+		case group.StatusRoute:
+			// Lead routing turn (hermes v0.22.7): run the lead, resolve the
+			// @target it names, and publish a room.routed event. The decision is
+			// never broadcast — only the assigned member answers next. An empty
+			// target (no @handle / failed turn) is still published so the policy
+			// planner falls back to the ordinary "everyone" path next round,
+			// never looping on the lead.
+			result, status := s.runGroupMemberTurn(ctx, room, dec.Task)
+			target := ""
+			if status == group.TermSettled {
+				if text, ok := result["text"].(string); ok {
+					target = group.LeadRouteTarget(text, room.Room)
+				}
+			}
+			s.appendGroupEvent(roomID, group.Event{
+				EventID: "drouted:" + newGroupID(), Kind: group.RoomRouted,
+				Actor: group.Actor{Kind: "member", ID: dec.Task.Member.MemberID, Profile: dec.Task.Member.Profile},
+				Payload: map[string]any{
+					"discussion_event_id": dec.DiscussionEventID,
+					"target_member_id":    target,
+					"assigned_by":         dec.Task.Member.MemberID,
+					"source_event_seq":    dec.SourceEventSeq,
+					"lead_route_failed":   target == "",
+				},
+				AuthorityGatewayID: roomID, AuthorityEpoch: 1,
+			})
 		case group.StatusTask:
 			result, status := s.runGroupMemberTurn(ctx, room, dec.Task)
 			plan, err := group.PlanPublication(room.Room, events, *dec.Task, status, result, profiles)
@@ -435,6 +513,10 @@ func (s *Server) resumeGroupDiscussions() {
 // members fall back to the default assistant agent.
 func (s *Server) runGroupMemberTurn(ctx context.Context, room *db.GroupRoom, task *group.TaskPlan) (map[string]any, string) {
 	member := task.Member
+	// Cross-gateway peer members run over A2A against their own gateway.
+	if member.Target != nil && member.Target.IsPeer() {
+		return s.runPeerMemberTurn(ctx, room, task)
+	}
 	agentKey := groupMemberAgentKey(room, member.MemberID)
 	if agentKey == "" {
 		agentKey = "default"
@@ -467,6 +549,48 @@ func (s *Server) runGroupMemberTurn(ctx context.Context, room *db.GroupRoom, tas
 		return map[string]any{"error": sanitizeClientError(err.Error())}, group.TermFailed
 	}
 	return map[string]any{"text": out}, group.TermSettled
+}
+
+// a2aCard advertises this gateway's capabilities to A2A peers.
+func (s *Server) a2aCard() a2a.AgentCard {
+	return a2a.AgentCard{
+		Name:        "baize-artex",
+		Description: "BaZe ARTEX gateway (pentest agent orchestration)",
+		Version:     "artex",
+	}
+}
+
+// runPeerMemberTurn runs a cross-gateway peer member's reply over A2A: the room
+// prompt is sent to the peer gateway's task/send endpoint, which executes its
+// local Bot and returns a Task whose last text artifact is the reply.
+func (s *Server) runPeerMemberTurn(ctx context.Context, room *db.GroupRoom, task *group.TaskPlan) (map[string]any, string) {
+	target := task.Member.Target
+	if target == nil || target.GatewayURL == "" {
+		return map[string]any{"error": "peer 成员缺少 A2A gateway_url"}, group.TermFailed
+	}
+	prompt, _ := task.Payload["prompt"].(string)
+	client := a2a.NewClient(target.GatewayURL, target.PeerToken)
+	resp, err := client.SendTask(ctx, s.a2aCard(), a2a.Message{
+		Role:  "agent",
+		Parts: []a2a.Part{{Kind: a2a.PartText, Text: prompt}},
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return map[string]any{"reason": "superseded_by_newer_user_event"}, group.TermCancelled
+		}
+		return map[string]any{"error": sanitizeClientError(err.Error())}, group.TermFailed
+	}
+	text := ""
+	if len(resp.Artifacts) > 0 {
+		text = resp.Artifacts[len(resp.Artifacts)-1].Text
+	}
+	if text == "" && resp.Message != nil {
+		text = resp.Message.Text()
+	}
+	if text == "" {
+		return map[string]any{"text": "(pass)"}, group.TermSettled
+	}
+	return map[string]any{"text": text}, group.TermSettled
 }
 
 // groupMemberAgentKey returns a member's bound agent key ("" = unbound).

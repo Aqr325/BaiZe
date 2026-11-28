@@ -457,7 +457,48 @@ func PlanNextTask(roomValue Room, events []Event, localProfiles []string, limits
 	}
 	watermarks := effectiveWatermarks(validated, nil)
 	resume := resumeRound(validated, discussion.EventID, memberMessages)
-	for roundIndex := 0; roundIndex < maxRounds; roundIndex++ {
+
+	// ---- lead routing (hermes v0.22.7, per-room opt-in, default OFF) ----
+	// Active only when routing=="lead", the lead is on the roster, and the user
+	// message names nobody. Messages that name someone bypass the lead entirely.
+	leadMode := LeadRoutingActive(room, context["routing"], context["lead_member_id"])
+	// A message that names someone (@handle / @all / @everyone) bypasses the
+	// lead entirely and follows the ordinary mention resolution (hermes v0.22.7:
+	// the lead only picks when the message names nobody).
+	namesSomeone := len(ResolveMentions([]string{discussion.Text()}, room.Members, false)) > 0
+	startRound := 0
+	if leadMode && !namesSomeone {
+		target, attempted := RoutedTarget(validated, discussion.EventID)
+		if !attempted {
+			// No routing decision yet: the lead makes one routing turn.
+			if lm := MemberByID(room, context["lead_member_id"]); lm != nil {
+				prompt := LeadRoutePrompt(room, *discussion, *lm, context)
+				task := makeTaskPlan(room, *discussion, *lm, 0, 0, discussion.Seq, prompt, true)
+				return decide(StatusRoute, "lead_route", &task), nil
+			}
+		} else if target != "" {
+			// Routing done: the assigned member answers (AssignedBy=lead) unless
+			// they already spoke in this discussion.
+			if tm := MemberByID(room, target); tm != nil && !MemberAnsweredIn(memberMessages, tm.MemberID) {
+				watermark := watermarks[threadID+"|"+tm.MemberID]
+				prompt, err := BuildPrompt(room, *tm, threadMessages_, watermark, discussion.Seq, PromptOpts{
+					AssignedBy: MemberByID(room, context["lead_member_id"]),
+					Context:    context,
+				})
+				if err != nil {
+					return Decision{}, err
+				}
+				task := makeTaskPlan(room, *discussion, *tm, 0, 0, discussion.Seq, prompt, true)
+				return decide(StatusTask, "lead_assigned", &task), nil
+			}
+			// Assigned member already answered → continue the ordinary @ flow
+			// from round 1 (round 0 was the lead's assignment).
+			startRound = 1
+		}
+		// attempted with an empty target, or no valid lead → fall back to everyone.
+	}
+
+	for roundIndex := startRound; roundIndex < maxRounds; roundIndex++ {
 		var responders []Member
 		if roundIndex == 0 {
 			responders = firstRoundResponders(*discussion, room)

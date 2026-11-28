@@ -7,7 +7,10 @@
 ### 新增
 
 - 动作分级与爆炸半径预算（借《AI 渗透测试智能体·被测环境安全》§5）：新增 `guard/action_tier.go` 五级动作风险分级（A0 只读观测 / A1 低影响探测 / A2 有状态写入 / A3 高风险 / A4 禁止），判据由非 LLM 的确定性启发式按「就高不就低、按影响不按意图」计算——A4 硬拦（rm -rf / DROP / mkfs / dd 覆盘 / 反弹 shell / 勒索框架 / find -delete / del /S 等）、A3 提权横向与数据导出验证（sudo / ssh / mysqldump / curl -d@ 文件外传 / chmod 777 等）、A2 写入与单文件删除、A1 探测、A0 兜底；新增 `guard/action_budget.go` 每任务爆炸半径预算（A2≤5、A3≤1、A4 恒 0），`Spend` 原子扣减、耗尽即停、不因重试追加；装配点 `server/manager.go` 的 `taskFromPG` 为每个任务注入默认预算。判定匹配解析出的命令文本而非原始 JSON（`json.Marshal` 会把 `>` 转义成 `\u003e` 令重定向判据落空），易冲突命令名（passwd/crontab/git 等）加前后缀约束防 `/etc/passwd` 一类路径误判；非 shell 工具按工具名分级（Write/Edit→A2、Read/Grep→A0）。
-- 动作指纹死循环检测（§7.2）：新增 `guard/loop_detector.go` + `ActionFingerprint`——hash(目标+动作类型+关键参数)，同一指纹在 60s 窗口内出现 ≥3 次判定循环（仅对 A2+ 高危动作，避免误伤正常只读探测），触发平台熔断拦截；`Guard.tierGate` 在拦截链路统一执行预算扣减与循环检测，独立于 Fence，不论 Fence 是否激活都作用于高危动作。新增 `guard/action_tier_test.go` 覆盖分级/指纹/预算/循环（含就高不就低、窗口过期、负值关闭、nil 兼容）。
+- 动作指纹死循环检测（§7.2）：新增 `guard/loop_detector.go` + `ActionFingerprint`——hash(目标+动作类型+关键参数)，同一指纹在 60s 窗口内出现 ≥3 次判定循环（仅对 A2+ 高危动作，避免误伤正常只读探测），触发平台熔断拦截；`Guard.tierGate` 在拦截链路统一执行预算扣减与循环检测，独立于 Fence，不论 Fence 是否激活都作用于高危动作。新增 `guard/action_tier_test.go`   覆盖分级/指纹/预算/循环（含就高不就低、窗口过期、负值关闭、nil 兼容）。
+- 群聊 lead 路由（hermes v0.22.7 移植，按房间可选）：`agent/group` 新增 lead 状态机——`routing=="lead"` 且消息未点名任何人时，lead Bot 先做一次路由 turn（`StatusRoute`），判定以 `room.routed` 事件记录（`target_member_id`/`assigned_by`）且**不广播**，被派成员经 `AssignedBy` 直接回应；点名消息（@handle/@all/@everyone）绕过 lead 照常解析；路由失败（无目标）回退 everyone 轮流，绝不死循环。`server/groups_api.go` 的 turn 循环新增 `StatusRoute` 分支执行 lead 判定。新增 `agent/group/lead.go` + `lead_test.go`。
+- 群聊 agent 间互相 @（既有策略 + lead 模式补测）：`unaddressedMemberMentions` 让 Bot 发言里的 `@handle` 拉队友进下一轮（被 @ 且此后未再发言者），prompt 明示可 @ 队友；补 lead 模式下 @ 仍生效的单测。
+- 群聊 peer 跨网关 A2A：新增 `agent/a2a` 包（AgentCard/Message/Part/Task + JSON-RPC 2.0 `task/send` 客户端与服务端，Bearer 认证，同步单端点）；`Target` 增加 `GatewayURL`/`PeerToken`；`runGroupMemberTurn` 对 peer 成员走 A2A 调远端 gateway 执行其本地 Bot；本 gateway 暴露 `POST /a2a` 端点（豁免浏览器 JWT、由 `ARTEX_A2A_TOKEN` 保护）；创建房间 API/前端支持 kind=peer 与 routing/lead。新增 `agent/a2a/a2a_test.go`。
 
 ### 修复
 

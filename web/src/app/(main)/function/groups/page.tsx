@@ -104,21 +104,40 @@ function NewGroupDialog({
   const { ui } = useUITranslation();
   const [name, setName] = React.useState("");
   const memberSeq = React.useRef(3);
-  const [members, setMembers] = React.useState<{ id: number; profileId: string; handle: string; agentKey: string }[]>([
-    { id: 1, profileId: "", handle: "", agentKey: "" },
-    { id: 2, profileId: "", handle: "", agentKey: "" },
+  const [members, setMembers] = React.useState<
+    {
+      id: number;
+      profileId: string;
+      handle: string;
+      agentKey: string;
+      kind: "local" | "peer";
+      gatewayUrl: string;
+      peerToken: string;
+    }[]
+  >([
+    { id: 1, profileId: "", handle: "", agentKey: "", kind: "local", gatewayUrl: "", peerToken: "" },
+    { id: 2, profileId: "", handle: "", agentKey: "", kind: "local", gatewayUrl: "", peerToken: "" },
   ]);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState("");
+  const [routing, setRouting] = React.useState<"everyone" | "lead">("everyone");
+  const [leadMember, setLeadMember] = React.useState("");
 
-  const updateMember = (id: number, field: "profileId" | "handle" | "agentKey", value: string) => {
+  const updateMember = (
+    id: number,
+    field: "profileId" | "handle" | "agentKey" | "kind" | "gatewayUrl" | "peerToken",
+    value: string,
+  ) => {
     setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, [field]: value } : m)));
   };
 
   const addMember = () => {
     if (members.length < 6) {
       const id = memberSeq.current++;
-      setMembers([...members, { id, profileId: "", handle: "", agentKey: "" }]);
+      setMembers([
+        ...members,
+        { id, profileId: "", handle: "", agentKey: "", kind: "local", gatewayUrl: "", peerToken: "" },
+      ]);
     }
   };
   const removeMember = (id: number) => {
@@ -131,16 +150,25 @@ function NewGroupDialog({
       setError(ui("screen.groups.newMembersHint"));
       return;
     }
+    if (routing === "lead" && !leadMember) {
+      setError(ui("screen.groups.newLeadHint"));
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       await api.createGroup({
         name: name.trim(),
+        routing,
+        lead_member_id: routing === "lead" ? leadMember : undefined,
         members: valid.map((m) => ({
           profile: m.handle.trim(),
           handle: m.handle.trim(),
           llm_profile_id: Number(m.profileId),
           agent_key: m.agentKey || undefined,
+          kind: m.kind,
+          gateway_url: m.kind === "peer" ? m.gatewayUrl || undefined : undefined,
+          peer_token: m.kind === "peer" ? m.peerToken || undefined : undefined,
         })),
       });
       onCreated();
@@ -168,12 +196,45 @@ function NewGroupDialog({
             />
           </div>
           <div className="space-y-1.5">
+            <Label>{ui("screen.groups.newRouting")}</Label>
+            <div className="flex items-center gap-2">
+              <NativeSelect
+                className="flex-1"
+                value={routing}
+                onChange={(e) => setRouting(e.target.value as "everyone" | "lead")}
+              >
+                <option value="everyone">{ui("screen.groups.newRoutingEveryone")}</option>
+                <option value="lead">{ui("screen.groups.newRoutingLead")}</option>
+              </NativeSelect>
+              {routing === "lead" && (
+                <NativeSelect className="flex-1" value={leadMember} onChange={(e) => setLeadMember(e.target.value)}>
+                  <option value="">{ui("screen.groups.newLeadHint")}</option>
+                  {members
+                    .filter((m) => m.handle.trim())
+                    .map((m) => (
+                      <option key={m.id} value={m.handle.trim()}>
+                        @{m.handle.trim()}
+                      </option>
+                    ))}
+                </NativeSelect>
+              )}
+            </div>
+          </div>
+          <div className="space-y-1.5">
             <Label>{ui("screen.groups.newMembers")}</Label>
             <p className="text-xs text-muted-foreground">{ui("screen.groups.newMembersHint")}</p>
             <div className="space-y-2">
               {members.map((m) => (
                 <div key={m.id} className="space-y-1.5 rounded-md border p-2">
                   <div className="flex items-center gap-2">
+                    <NativeSelect
+                      className="w-28"
+                      value={m.kind}
+                      onChange={(e) => updateMember(m.id, "kind", e.target.value)}
+                    >
+                      <option value="local">{ui("screen.groups.newKindLocal")}</option>
+                      <option value="peer">{ui("screen.groups.newKindPeer")}</option>
+                    </NativeSelect>
                     <NativeSelect
                       className="flex-1"
                       value={m.profileId}
@@ -201,18 +262,33 @@ function NewGroupDialog({
                       <Trash2Icon className="h-4 w-4" />
                     </Button>
                   </div>
-                  <NativeSelect
-                    className="w-full"
-                    value={m.agentKey}
-                    onChange={(e) => updateMember(m.id, "agentKey", e.target.value)}
-                  >
-                    <option value="">{ui("screen.groups.newAgentNone")}</option>
-                    {agents.map((a) => (
-                      <option key={a.key} value={a.key}>
-                        {a.name} ({a.key})
-                      </option>
-                    ))}
-                  </NativeSelect>
+                  {m.kind === "peer" ? (
+                    <div className="space-y-1.5">
+                      <Input
+                        value={m.gatewayUrl}
+                        onChange={(e) => updateMember(m.id, "gatewayUrl", e.target.value)}
+                        placeholder={ui("screen.groups.newGatewayPlaceholder")}
+                      />
+                      <Input
+                        value={m.peerToken}
+                        onChange={(e) => updateMember(m.id, "peerToken", e.target.value)}
+                        placeholder={ui("screen.groups.newTokenPlaceholder")}
+                      />
+                    </div>
+                  ) : (
+                    <NativeSelect
+                      className="w-full"
+                      value={m.agentKey}
+                      onChange={(e) => updateMember(m.id, "agentKey", e.target.value)}
+                    >
+                      <option value="">{ui("screen.groups.newAgentNone")}</option>
+                      {agents.map((a) => (
+                        <option key={a.key} value={a.key}>
+                          {a.name} ({a.key})
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  )}
                 </div>
               ))}
             </div>
