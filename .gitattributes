@@ -1,6 +1,9 @@
 *.bat text eol=crlf
 *.sh  text eol=lf
 *.go  text eol=lf
+*.md  text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
 
 # 技能内容按字节参与 tree-hash 校验，禁止任何换行转换（否则 clone 后必判 tamper）
 skills/** -text
