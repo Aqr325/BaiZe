@@ -51,13 +51,13 @@ func TestApplySchemaRetriesOnlyDeadlocks(t *testing.T) {
 	}
 }
 
-// testDSN returns the configured DSN, skipping the test when neither the env var
-// nor a config file supplies one (DSN no longer has a built-in default).
+// testDSN returns the DSN for DB-backed tests, skipping when ARTEX_PG_DSN is
+// not explicitly set (CI 的隔离 PG service)。绝不读 config.json 的 live 库。
 func testDSN(t *testing.T) string {
 	t.Helper()
-	dsn, _, err := DSN()
+	dsn, err := TestDSN()
 	if err != nil {
-		t.Skipf("no database config (%v) — skipping", err)
+		t.Skipf("no test database (%v) — skipping", err)
 	}
 	return dsn
 }

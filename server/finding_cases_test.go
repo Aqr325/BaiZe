@@ -18,7 +18,7 @@ import (
 
 func testCaseServer(t *testing.T) (*Server, int64, []int64) {
 	t.Helper()
-	dsn, _, err := db.DSN()
+	dsn, err := db.TestDSN()
 	if err != nil {
 		t.Fatal(err)
 	}

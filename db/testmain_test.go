@@ -14,9 +14,9 @@ import (
 // avoid cross-package cleanup races (e.g. DELETE FROM assets WHERE id > X
 // from one package deleting assets created by another).
 func TestMain(m *testing.M) {
-	dsn, _, err := DSN()
+	dsn, err := TestDSN()
 	if err != nil {
-		// No DB configured — tests that need PG will skip themselves.
+		// No test DB configured (ARTEX_PG_DSN unset) — DB tests skip themselves.
 		os.Exit(m.Run())
 	}
 	conn, err := sql.Open("pgx", dsn)

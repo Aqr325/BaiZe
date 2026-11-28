@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -92,6 +93,18 @@ func coordinateWithSchemaMigration(tx *sql.Tx) error {
 // built-in default — it errors if neither source is configured.
 func DSN() (dsn, source string, err error) {
 	return config.PostgresDSN()
+}
+
+// TestDSN returns the DSN for DB-backed tests, but ONLY when it is explicitly
+// provided via the ARTEX_PG_DSN environment variable (CI 的隔离 PG service，或
+// 本地显式指定的测试库)。若 ARTEX_PG_DSN 未设置则返回错误，连库测试会 skip——
+// 绝不读取 config.json 指向的本地 live 库（那会污染真实数据，见 2026-11-28
+// 的 live DB 清理）。生产代码仍走 DSN()，不受影响。
+func TestDSN() (string, error) {
+	if dsn := strings.TrimSpace(os.Getenv("ARTEX_PG_DSN")); dsn != "" {
+		return dsn, nil
+	}
+	return "", fmt.Errorf("ARTEX_PG_DSN 未设置：DB 测试仅通过 CI 的隔离 PG service 或显式 ARTEX_PG_DSN 运行，避免污染 config.json 指向的本地 live 库")
 }
 
 // DB wraps the shared *sql.DB. PG handles its own connection pool + concurrency
