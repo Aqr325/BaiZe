@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### 新增
+
+- 动作分级与爆炸半径预算（借《AI 渗透测试智能体·被测环境安全》§5）：新增 `guard/action_tier.go` 五级动作风险分级（A0 只读观测 / A1 低影响探测 / A2 有状态写入 / A3 高风险 / A4 禁止），判据由非 LLM 的确定性启发式按「就高不就低、按影响不按意图」计算——A4 硬拦（rm -rf / DROP / mkfs / dd 覆盘 / 反弹 shell / 勒索框架 / find -delete / del /S 等）、A3 提权横向与数据导出验证（sudo / ssh / mysqldump / curl -d@ 文件外传 / chmod 777 等）、A2 写入与单文件删除、A1 探测、A0 兜底；新增 `guard/action_budget.go` 每任务爆炸半径预算（A2≤5、A3≤1、A4 恒 0），`Spend` 原子扣减、耗尽即停、不因重试追加；装配点 `server/manager.go` 的 `taskFromPG` 为每个任务注入默认预算。判定匹配解析出的命令文本而非原始 JSON（`json.Marshal` 会把 `>` 转义成 `\u003e` 令重定向判据落空），易冲突命令名（passwd/crontab/git 等）加前后缀约束防 `/etc/passwd` 一类路径误判；非 shell 工具按工具名分级（Write/Edit→A2、Read/Grep→A0）。
+- 动作指纹死循环检测（§7.2）：新增 `guard/loop_detector.go` + `ActionFingerprint`——hash(目标+动作类型+关键参数)，同一指纹在 60s 窗口内出现 ≥3 次判定循环（仅对 A2+ 高危动作，避免误伤正常只读探测），触发平台熔断拦截；`Guard.tierGate` 在拦截链路统一执行预算扣减与循环检测，独立于 Fence，不论 Fence 是否激活都作用于高危动作。新增 `guard/action_tier_test.go` 覆盖分级/指纹/预算/循环（含就高不就低、窗口过期、负值关闭、nil 兼容）。
+
 ### 修复
 
 - 前端 lint 门禁：升级 `@biomejs/biome` 至 2.5.15（`~2.5.15` 锁定 2.5 minor），修复 2.5.1 在 Windows 上 `lint` 子命令全局栈溢出（`workspace_worker_N has overflowed its stack`，exit 127）导致 lint/CI 门禁形同虚设的问题；同步 biome schema 版本，排除 `.next.prev-*`/`stage-test` 等本地构建备份目录，`useSortedClasses` 降为 warn。门禁恢复正常执行，`tsc --noEmit` 仍为 0。

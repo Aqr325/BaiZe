@@ -1192,6 +1192,10 @@ func taskFromPG(pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Inter
 		// 无结构化 allow 规则时 Fence 不激活，回落上面的 deny 清单升级行为。
 		g.SetFenceLoader(func() *guard.Fence { return buildTaskFence(store) })
 	}
+	// 动作分级门禁（§5/§7.2）：爆炸半径预算 + 死循环检测。独立安全层，不论 Fence
+	// 是否激活都对高危动作生效——A4 恒拒、A3/A2 额度耗尽即停、同指纹循环熔断。
+	g.SetActionBudget(guard.NewActionBudget(guard.DefaultActionBudgetA2, guard.DefaultActionBudgetA3))
+	g.SetLoopDetector(guard.NewLoopDetector(guard.DefaultLoopWindow, guard.DefaultLoopThreshold, nil))
 	return &Task{
 		ID: strconv.FormatInt(pt.ID, 10), ExpID: pt.ExplorationID,
 		Name:       pt.Name,

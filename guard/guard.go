@@ -10,6 +10,8 @@ package guard
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"sync"
@@ -56,6 +58,14 @@ type Guard struct {
 	// is otherwise invisible to the tool-call boundary (供应链安全审计 §2.1:
 	// 恶意 skill 正文 = 提示注入面，位于 tool-call 防线盲区)。nil = no probe.
 	skillProbe func(name string) (content string, ok bool)
+	// budget is the task's 动作分级爆炸半径预算(§5.4). When set, every tool call
+	// is classified to A0-A4 and spends the corresponding tier's allowance; A4 is
+	// always forbidden and exhausted tiers stop. nil = 分级门禁未启用(兼容旧行为).
+	budget *ActionBudget
+	// loop is the 动作指纹死循环检测器(§7.2). When set, high-tier (A2+) calls
+	// with a repeated fingerprint within the window trip the detector and are
+	// blocked to prevent runaway retry loops. nil = 循环检测未启用.
+	loop *LoopDetector
 }
 
 // SetDenyConstraintCheck installs a live check for this task's deny constraints.
@@ -74,6 +84,13 @@ func (g *Guard) SetFenceLoader(fn func() *Fence) { g.fenceLoader = fn }
 // name. When set, skill invocations additionally have their content evaluated
 // against user-configured deny rules (see checkSkillContent).
 func (g *Guard) SetSkillProbe(fn func(name string) (string, bool)) { g.skillProbe = fn }
+
+// SetActionBudget installs the task's 动作分级爆炸半径预算(§5.4). nil disables
+// the tier gate (legacy behavior).
+func (g *Guard) SetActionBudget(b *ActionBudget) { g.budget = b }
+
+// SetLoopDetector installs the task's 动作指纹死循环检测器(§7.2). nil disables.
+func (g *Guard) SetLoopDetector(d *LoopDetector) { g.loop = d }
 
 // isSkillTool reports whether the hook event is a skill invocation. The skill
 // meta-tool is named "Skill" (norma), matched case-insensitively so a deny rule
@@ -145,6 +162,12 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 		}
 	}
 
+	// --- 0.5 动作分级门禁（§5/§7.2）：爆炸半径预算 + 死循环检测。 ---
+	// 独立安全层：不论 Fence 是否激活，高危动作都受额度与循环门禁约束。
+	if res, handled := g.tierGate(ev); handled {
+		return res
+	}
+
 	// 取当前 Fence：live fenceLoader（每次现读，约束可运行时增删）优先于静态 SetFence。
 	fence := g.fence
 	if g.fenceLoader != nil {
@@ -195,6 +218,43 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 		})
 	}
 	return g.ruleTail(ctx, ev)
+}
+
+// tierGate 是动作分级门禁(§5/§7.2)入口：把一个工具调用按 ActionTier 分类,
+// 依次做死循环检测(仅 A2+ 高危动作)与爆炸半径预算扣减。返回 (result, true)
+// 表示该调用被分级门禁拒绝(预算耗尽 / A4 禁止 / 循环熔断);(zero, false) 表示
+// 放行、继续走 Fence/ruleTail 判定。nil budget 且 nil loop 时不启用(兼容旧行为)。
+func (g *Guard) tierGate(ev hook.Event) (hook.Result, bool) {
+	if g.budget == nil && g.loop == nil {
+		return hook.Result{}, false
+	}
+	tier := ClassifyAction(ev.ToolName, ev.Input)
+	// 死循环检测：仅对 A2+ 高危动作启用。重复只读探测(A0/A1，如多次 curl 同一
+	// 指纹)是正常行为，不判循环；只有"卡住后反复执行同一高危动作"才熔断(§7.2)。
+	if g.loop != nil && tier >= TierA2 {
+		if fp := ActionFingerprint(ev.ToolName, ev.Input); fp != "" {
+			if _, tripped := g.loop.Record(fp); tripped {
+				return g.block(ev.ToolName,
+					systemBlockMessage("检测到动作循环：相同目标+动作类型+关键参数在窗口内多次重复，平台已熔断以防失控（§7.2）"),
+					""), true
+			}
+		}
+	}
+	// 爆炸半径预算：A4 恒拒，A3/A2 额度耗尽即停(§5.4)。
+	if g.budget != nil {
+		if err := g.budget.Spend(tier); err != nil {
+			return g.block(ev.ToolName, systemBlockMessage(tierDenyMessage(tier, err)), ""), true
+		}
+	}
+	return hook.Result{}, false
+}
+
+// tierDenyMessage 把一次分级拒绝包装成平台可读的原因文案。
+func tierDenyMessage(tier ActionTier, err error) string {
+	if errors.Is(err, ErrTierForbidden) {
+		return "命中动作禁止等级 A4（不可逆破坏/批量外传/影响第三方），平台硬阻断"
+	}
+	return fmt.Sprintf("动作分级预算耗尽（%s），额度用尽即停，不因重试追加（§5.4）", tier)
 }
 
 // checkSkillContent evaluates a skill invocation's 正文 against user-configured
