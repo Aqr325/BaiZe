@@ -1,33 +1,35 @@
 // @ts-nocheck
-'use client';
+"use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { animate, useReducedMotion } from 'motion/react';
-import { HugeiconsIcon } from '@hugeicons/react';
-import { ArrowDown01Icon, SparklesIcon, Tick02Icon } from '@hugeicons/core-free-icons';
-import './thought-line.css';
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+
+import { ArrowDown01Icon, SparklesIcon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { animate, useReducedMotion } from "motion/react";
+import "./thought-line.css";
 
 const EASE_OUT = [0.23, 1, 0.32, 1];
 const EASE_IN_OUT = [0.77, 0, 0.175, 1];
 const GLYPH_DONE = 0.55;
 const EMPTY_STEPS = [];
 
-const fmt = ds => (ds < 600 ? `${(ds / 10).toFixed(1)}s` : `${Math.floor(ds / 600)}m ${((ds % 600) / 10).toFixed(1)}s`);
-const spoken = ds =>
+const fmt = (ds) =>
+  ds < 600 ? `${(ds / 10).toFixed(1)}s` : `${Math.floor(ds / 600)}m ${((ds % 600) / 10).toFixed(1)}s`;
+const spoken = (ds) =>
   ds < 600
     ? `${(ds / 10).toFixed(1)} seconds`
     : `${Math.floor(ds / 600)} minutes ${((ds % 600) / 10).toFixed(1)} seconds`;
 
 export default function ThoughtLine({
-  label = 'Thinking…',
-  doneLabel = '',
+  label = "Thinking…",
+  doneLabel = "",
   renderLabel,
-  glyph = 'sparkle',
+  glyph = "sparkle",
   steps = EMPTY_STEPS,
   collapsible = true,
   collapseOnSettle = true,
-  color = 'currentColor',
-  glyphColor = '',
+  color = "currentColor",
+  glyphColor = "",
   fontSize = 16,
   breathPeriod = 1.6,
   breathDepth = 0.45,
@@ -40,14 +42,14 @@ export default function ThoughtLine({
   elapsed,
   showTimer = true,
   onSettle,
-  className = '',
-  style
+  className = "",
+  style,
 }) {
   const reduce = useReducedMotion();
   const [autoSettled, setAutoSettled] = useState(false);
   const [open, setOpen] = useState(true);
   const isWorking = working && !autoSettled;
-  const doneText = doneLabel || (showTimer ? 'Thought for' : 'Done thinking');
+  const doneText = doneLabel || (showTimer ? "Thought for" : "Done thinking");
   const hasTrace = steps.length > 0;
   const depth = reduce ? Math.min(breathDepth, 0.2) : breathDepth;
   const period = reduce ? breathPeriod * 1.5 : breathPeriod;
@@ -107,11 +109,11 @@ export default function ThoughtLine({
     }
     return () => {
       cancelled = true;
-      running.forEach(a => a.stop());
+      running.forEach((a) => a.stop());
     };
   }, [isWorking, period, depth, trough, settleDuration, glyph, sheen]);
 
-  const paint = ds => {
+  const paint = (ds) => {
     dsRef.current = ds;
     if (timerRef.current) timerRef.current.textContent = fmt(ds);
   };
@@ -135,15 +137,15 @@ export default function ThoughtLine({
     const t = timerRef.current;
     const stack = stackRef.current;
     if (!t || !stack) return undefined;
-    const place = glide => {
+    const place = (glide) => {
       const active = isWorking ? workRef.current : doneRef.current;
       if (!active) return;
       const shift = active.offsetWidth - stack.offsetWidth;
-      if (!glide) t.style.transition = 'none';
+      if (!glide) t.style.transition = "none";
       t.style.transform = `translateX(${shift}px)`;
       if (!glide) {
         void t.offsetWidth;
-        t.style.transition = '';
+        t.style.transition = "";
       }
     };
     place(prevWorking.current !== isWorking);
@@ -167,11 +169,11 @@ export default function ThoughtLine({
   const toggle = hasTrace && collapsible;
   const head = (
     <>
-      {glyph !== 'none' ? (
+      {glyph !== "none" ? (
         <span ref={glyphRef} className="thought-line__glyph" aria-hidden="true">
-          {glyph === 'sparkle' ? (
+          {glyph === "sparkle" ? (
             <HugeiconsIcon icon={SparklesIcon} size="100%" strokeWidth={2} />
-          ) : glyph === 'dot' ? (
+          ) : glyph === "dot" ? (
             <span className="thought-line__dot" />
           ) : (
             glyph
@@ -179,26 +181,26 @@ export default function ThoughtLine({
         </span>
       ) : null}
       <span ref={stackRef} className="thought-line__label" aria-hidden="true">
-        <span ref={workRef} className="thought-line__text" data-active={isWorking ? '' : undefined}>
-          <span ref={breathRef} className="thought-line__breath" data-shimmer={sheen ? '' : undefined}>
+        <span ref={workRef} className="thought-line__text" data-active={isWorking ? "" : undefined}>
+          <span ref={breathRef} className="thought-line__breath" data-shimmer={sheen ? "" : undefined}>
             {renderLabel ? renderLabel(label, true) : label}
           </span>
         </span>
         <span
           ref={doneRef}
           className="thought-line__text thought-line__text--done"
-          data-active={isWorking ? undefined : ''}
+          data-active={isWorking ? undefined : ""}
         >
           {renderLabel ? renderLabel(doneText, false) : doneText}
         </span>
       </span>
       {showTimer ? (
-        <span ref={timerRef} className="thought-line__timer" data-done={isWorking ? undefined : ''} aria-hidden="true">
+        <span ref={timerRef} className="thought-line__timer" data-done={isWorking ? undefined : ""} aria-hidden="true">
           0.0s
         </span>
       ) : null}
       {collapsible ? (
-        <span className="thought-line__chevron" data-on={hasTrace ? '' : undefined} aria-hidden="true">
+        <span className="thought-line__chevron" data-on={hasTrace ? "" : undefined} aria-hidden="true">
           <HugeiconsIcon icon={ArrowDown01Icon} size="1em" strokeWidth={2.2} />
         </span>
       ) : null}
@@ -210,28 +212,28 @@ export default function ThoughtLine({
 
   return (
     <div
-      className={`thought-line${className ? ` ${className}` : ''}`}
-      data-working={isWorking ? '' : undefined}
-      data-open={open && hasTrace ? '' : undefined}
+      className={`thought-line${className ? ` ${className}` : ""}`}
+      data-working={isWorking ? "" : undefined}
+      data-open={open && hasTrace ? "" : undefined}
       style={{
-        '--tl-font': `${fontSize}px`,
-        '--tl-color': color,
-        '--tl-glyph': glyphColor || color,
-        '--tl-settle': `${settleDuration}ms`,
-        '--tl-blur': `${settleBlur}px`,
-        '--tl-shimmer': `${shimmerDuration}s`,
-        ...style
+        "--tl-font": `${fontSize}px`,
+        "--tl-color": color,
+        "--tl-glyph": glyphColor || color,
+        "--tl-settle": `${settleDuration}ms`,
+        "--tl-blur": `${settleBlur}px`,
+        "--tl-shimmer": `${shimmerDuration}s`,
+        ...style,
       }}
     >
       {collapsible ? (
         <button
           type="button"
           className="thought-line__head"
-          data-toggle={toggle ? '' : undefined}
+          data-toggle={toggle ? "" : undefined}
           aria-expanded={toggle ? open : undefined}
           tabIndex={toggle ? 0 : -1}
           onClick={() => {
-            if (toggle) setOpen(v => !v);
+            if (toggle) setOpen((v) => !v);
           }}
         >
           {head}
@@ -240,13 +242,13 @@ export default function ThoughtLine({
         <div className="thought-line__head">{head}</div>
       )}
       {hasTrace ? (
-        <div className="thought-line__trace" data-open={open ? '' : undefined} aria-hidden={!open}>
+        <div className="thought-line__trace" data-open={open ? "" : undefined} aria-hidden={!open}>
           <div className="thought-line__fold">
             <div className="thought-line__steps">
               {steps.map((text, i) => {
                 const done = !isWorking || i < steps.length - 1;
                 return (
-                  <div key={`${i}-${text}`} className="thought-line__step" data-done={done ? '' : undefined}>
+                  <div key={`${i}-${text}`} className="thought-line__step" data-done={done ? "" : undefined}>
                     <span className="thought-line__mark" aria-hidden="true">
                       {done ? (
                         <HugeiconsIcon icon={Tick02Icon} size="1em" strokeWidth={2.5} />

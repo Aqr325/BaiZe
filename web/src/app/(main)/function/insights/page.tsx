@@ -9,8 +9,8 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
-  ResponsiveContainer,
   Tooltip as RechartsTooltip,
+  ResponsiveContainer,
   XAxis,
   YAxis,
 } from "recharts";
@@ -92,7 +92,9 @@ export default function InsightsPage() {
         </div>
       </div>
 
-      {error ? <div className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
+      {error ? (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>
+      ) : null}
 
       {/* 当前严重等级分布 */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -105,9 +107,7 @@ export default function InsightsPage() {
           </Card>
         ))}
       </div>
-      <p className="text-muted-foreground text-xs">
-        {ui("screen.insights.sevTotal", { v0: sevTotal })}
-      </p>
+      <p className="text-muted-foreground text-xs">{ui("screen.insights.sevTotal", { v0: sevTotal })}</p>
 
       {/* 任务趋势 */}
       <Card className="p-4">
@@ -155,11 +155,32 @@ export default function InsightsPage() {
             <AreaChart data={data?.tokens_by_day ?? []}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis dataKey="date" tickFormatter={shortDate} fontSize={11} />
-              <YAxis fontSize={11} tickFormatter={(v: number) => (v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(v))} />
+              <YAxis
+                fontSize={11}
+                tickFormatter={(v: number) =>
+                  v >= 1_000_000
+                    ? `${(v / 1_000_000).toFixed(1)}M`
+                    : v >= 1000
+                      ? `${(v / 1000).toFixed(0)}K`
+                      : String(v)
+                }
+              />
               <RechartsTooltip />
               <Legend />
-              <Area dataKey="input" name={ui("screen.insights.tokensInput")} stroke="#3b82f6" fill="#93c5fd" fillOpacity={0.4} />
-              <Area dataKey="output" name={ui("screen.insights.tokensOutput")} stroke="#8b5cf6" fill="#c4b5fd" fillOpacity={0.4} />
+              <Area
+                dataKey="input"
+                name={ui("screen.insights.tokensInput")}
+                stroke="#3b82f6"
+                fill="#93c5fd"
+                fillOpacity={0.4}
+              />
+              <Area
+                dataKey="output"
+                name={ui("screen.insights.tokensOutput")}
+                stroke="#8b5cf6"
+                fill="#c4b5fd"
+                fillOpacity={0.4}
+              />
             </AreaChart>
           </ResponsiveContainer>
         </div>

@@ -1469,7 +1469,8 @@ export interface MCPTemplate {
 }
 
 export interface MCPTool {
-  name: string;  description: string;
+  name: string;
+  description: string;
 }
 
 // ---- Skills ----

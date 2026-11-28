@@ -645,11 +645,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
                   ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
                   : "bg-muted text-muted-foreground"
               }`}
-              title={
-                fenceActive
-                  ? ui("overview.fenceEnabledTitle")
-                  : ui("overview.fenceDisabledTitle")
-              }
+              title={fenceActive ? ui("overview.fenceEnabledTitle") : ui("overview.fenceDisabledTitle")}
             >
               {fenceActive ? ui("overview.fenceEnabled") : ui("overview.fenceDisabled")}
             </span>
@@ -831,9 +827,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
               <ShieldCheckIcon className="size-4 text-emerald-500" />
               <span className="text-sm font-medium">{ui("overview.fenceAuthzTitle")}</span>
               <span className="text-muted-foreground text-xs">
-                {fenceActive
-                  ? ui("overview.fenceAuthzOn")
-                  : ui("overview.fenceAuthzOff")}
+                {fenceActive ? ui("overview.fenceAuthzOn") : ui("overview.fenceAuthzOff")}
               </span>
             </div>
             {fenceAuthz.length > 0 ? (

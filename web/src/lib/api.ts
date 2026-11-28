@@ -19,9 +19,8 @@ import type {
   Audit,
   BatchCategoryItem,
   BatchControlItem,
+  CancelSubagentResult,
   ChatAttachment,
-  DataSearchItem,
-  TaskCompareResult,
   CommandRecord,
   Company,
   CompanyScopeMutation,
@@ -32,6 +31,7 @@ import type {
   CoverageGraphData,
   CredentialTrafficDetail,
   DailyTokenBucket,
+  DataSearchItem,
   DeleteTaskOptions,
   DeleteTaskResult,
   Edge,
@@ -39,6 +39,8 @@ import type {
   EvidenceBodyPreview,
   ExplorationNodePage,
   ExplorationNodeQuery,
+  FenceAuthz,
+  FenceMatch,
   Finding,
   FindingAssetTree,
   FindingCaseDetail,
@@ -54,6 +56,9 @@ import type {
   FindingsPage,
   FindingTraffic,
   FindingTrafficDetail,
+  GroupCreateInput,
+  GroupRoomDetail,
+  GroupRoomRow,
   IntelligencePage,
   IntentAsset,
   InterceptApprovalFilter,
@@ -71,6 +76,7 @@ import type {
   LLMRetryPolicy,
   LLMTask,
   MCPServer,
+  MCPTemplate,
   MCPTool,
   MissingSkill,
   ModelTokenStat,
@@ -93,10 +99,6 @@ import type {
   SSTask,
   Stats,
   SubagentRun,
-  CancelSubagentResult,
-  GroupRoomRow,
-  GroupRoomDetail,
-  GroupCreateInput,
   SystemMetrics,
   Task,
   TaskArchive,
@@ -104,9 +106,8 @@ import type {
   TaskAssetMutation,
   TaskAssetScopeMutation,
   TaskCategory,
+  TaskCompareResult,
   TaskConstraint,
-  FenceAuthz,
-  FenceMatch,
   TaskFileListing,
   TaskGoal,
   TaskIntelligence,
@@ -129,7 +130,6 @@ import type {
   UsageStats,
   WorkspaceFile,
   WorkspaceListing,
-  MCPTemplate,
 } from "@/lib/types";
 
 /**
@@ -516,7 +516,10 @@ export const api = {
   login: (username: string, password: string) => post<{ token: string }>("/auth/login", { username, password }),
   initPassword: (password: string) => post<{ token: string }>("/auth/init", { password }),
   changePassword: (oldPassword: string, newPassword: string) =>
-    post<{ ok: boolean; token?: string }>("/auth/change-password", { old_password: oldPassword, new_password: newPassword }),
+    post<{ ok: boolean; token?: string }>("/auth/change-password", {
+      old_password: oldPassword,
+      new_password: newPassword,
+    }),
 
   // ---- tasks ----
   tasks: () =>
@@ -543,14 +546,13 @@ export const api = {
   // ---- multi-agent delegation ledger ----
   // 子代理台账：list / inspect / cancel。parent 空 = 全部会话；limit 默认 200。
   subagents: (parent = "", limit = 200) =>
-    get<{ items: SubagentRun[] }>(
-      `/delegations?parent=${encodeURIComponent(parent)}&limit=${limit}`,
-    ).then((r) => ({ items: arr<SubagentRun>(r.items) })),
+    get<{ items: SubagentRun[] }>(`/delegations?parent=${encodeURIComponent(parent)}&limit=${limit}`).then((r) => ({
+      items: arr<SubagentRun>(r.items),
+    })),
   subagent: (id: string) => get<SubagentRun>(`/delegations/${encodeURIComponent(id)}`),
   cancelSubagent: (id: string, reason?: string) =>
     post<CancelSubagentResult>(`/delegations/${encodeURIComponent(id)}/cancel`, { reason }),
-  groups: () =>
-    get<{ items: GroupRoomRow[] }>(`/groups`).then((r) => ({ items: arr<GroupRoomRow>(r.items) })),
+  groups: () => get<{ items: GroupRoomRow[] }>(`/groups`).then((r) => ({ items: arr<GroupRoomRow>(r.items) })),
   group: (id: string) => get<GroupRoomDetail>(`/groups/${encodeURIComponent(id)}`),
   createGroup: (input: GroupCreateInput) => post<{ room_id: string }>(`/groups`, input),
   sendGroupMessage: (id: string, text: string, threadId = "main") =>
@@ -560,9 +562,7 @@ export const api = {
     }),
   stopGroup: (id: string) => post<{ status: string }>(`/groups/${encodeURIComponent(id)}/stop`),
   continueGroup: (id: string, discussion = "") =>
-    post<{ status: string }>(
-      `/groups/${encodeURIComponent(id)}/continue?discussion=${encodeURIComponent(discussion)}`,
-    ),
+    post<{ status: string }>(`/groups/${encodeURIComponent(id)}/continue?discussion=${encodeURIComponent(discussion)}`),
   disbandGroup: (id: string) => post<{ status: string }>(`/groups/${encodeURIComponent(id)}/disband`),
   createTask: (input: {
     name?: string;
@@ -760,8 +760,20 @@ export const api = {
   addConstraint: (id: string, text: string, kind: TaskConstraint["kind"], match?: FenceMatch, pattern?: string) =>
     post<TaskConstraint>(`/tasks/${id}/constraints`, { text, kind, match: match ?? "", pattern: pattern ?? "" }),
   // 修改约束（文本 + allow/deny + 结构化字段）。
-  updateConstraint: (id: string, constraintId: string, text: string, kind: TaskConstraint["kind"], match?: FenceMatch, pattern?: string) =>
-    patch<TaskConstraint>(`/tasks/${id}/constraints/${constraintId}`, { text, kind, match: match ?? "", pattern: pattern ?? "" }),
+  updateConstraint: (
+    id: string,
+    constraintId: string,
+    text: string,
+    kind: TaskConstraint["kind"],
+    match?: FenceMatch,
+    pattern?: string,
+  ) =>
+    patch<TaskConstraint>(`/tasks/${id}/constraints/${constraintId}`, {
+      text,
+      kind,
+      match: match ?? "",
+      pattern: pattern ?? "",
+    }),
   // 删除约束。
   deleteConstraint: (id: string, constraintId: string) =>
     del<{ ok: boolean }>(`/tasks/${id}/constraints/${constraintId}`),
@@ -774,8 +786,7 @@ export const api = {
       fenceActive: !!r.fence_active,
     })),
   // 撤销一条越界授权（收回越界边界）。
-  revokeFenceAuthz: (id: string, authzId: string) =>
-    del<{ ok: boolean }>(`/tasks/${id}/fence-authz/${authzId}`),
+  revokeFenceAuthz: (id: string, authzId: string) => del<{ ok: boolean }>(`/tasks/${id}/fence-authz/${authzId}`),
 
   // ---- 任务级资产拦截/允许规则（总览）----
   taskInterceptRules: (id: string) =>
@@ -1312,13 +1323,11 @@ export const api = {
     get<{ entries: McpServerAuditEntry[] }>(`/mcp-server/audit?limit=${limit}`).then((r) => arr(r.entries)),
   mcpSecurityEvents: (limit = 50) =>
     get<{ entries: McpSecurityEvent[] }>(`/security/mcp-events?limit=${limit}`).then((r) => arr(r.entries)),
-  mcpPinQuarantine: () =>
-    get<{ items: McpPinQuarantine[]; enforce: boolean }>("/security/mcp-pin/quarantine"),
+  mcpPinQuarantine: () => get<{ items: McpPinQuarantine[]; enforce: boolean }>("/security/mcp-pin/quarantine"),
   mcpPinApprove: (server: string, tool: string, newHash: string) =>
     post<{ ok: boolean }>("/security/mcp-pin/approve", { server, tool, new_hash: newHash }),
   mcpPinConfig: () => get<{ enforce: boolean }>("/security/mcp-pin/config"),
-  mcpPinSetConfig: (enforce: boolean) =>
-    put<{ enforce: boolean }>("/security/mcp-pin/config", { enforce }),
+  mcpPinSetConfig: (enforce: boolean) => put<{ enforce: boolean }>("/security/mcp-pin/config", { enforce }),
   // Run a real "test" search with the given (or saved) config to verify it works.
   testWebSearch: (patch: {
     web_search_backend?: string;
@@ -1423,10 +1432,9 @@ export const api = {
   // 专业渗透测试报告（执行摘要+等级分布+逐条修复建议），html/md 两种格式下载。
   pentestReport: async (task: string, format: "html" | "md") => {
     const token = getToken();
-    const r = await apiFetch(
-      `/api/pentest-report?task=${encodeURIComponent(task)}&format=${format}`,
-      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
-    );
+    const r = await apiFetch(`/api/pentest-report?task=${encodeURIComponent(task)}&format=${format}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
     if (!r.ok) throw new Error(`pentest-report: ${r.status}`);
     const blob = await r.blob();
     const disp = r.headers.get("Content-Disposition") ?? "";
@@ -1909,10 +1917,19 @@ export const api = {
   rollbackUpdate: () => post<{ ok: boolean }>(`/update/rollback`),
 
   // ---- 长期记忆（/api/memories、/api/obsidian）----
-  memories: (q: {
-    scope?: string; kind?: string; status?: string; q?: string;
-    entity?: string; company_id?: number; task_id?: number; limit?: number; offset?: number;
-  } = {}) => {
+  memories: (
+    q: {
+      scope?: string;
+      kind?: string;
+      status?: string;
+      q?: string;
+      entity?: string;
+      company_id?: number;
+      task_id?: number;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ) => {
     const sp = new URLSearchParams();
     if (q.scope) sp.set("scope", q.scope);
     if (q.kind) sp.set("kind", q.kind);
@@ -1929,19 +1946,34 @@ export const api = {
     }>(`/memories${sp.size ? `?${sp}` : ""}`);
   },
   createMemory: (input: {
-    scope: string; kind: string; title: string; content: string; salience?: number;
-    source?: string; company_id?: number; task_id?: number;
-  }) =>
-    post<{ memory: import("@/lib/types").MemoryItem; created: boolean }>(`/memories`, input),
-  updateMemory: (id: number, data: {
-    title?: string; kind?: string; content?: string; status?: string; salience?: number;
-  }) => patch<{ memory: import("@/lib/types").MemoryItem }>(`/memories/${id}`, data),
+    scope: string;
+    kind: string;
+    title: string;
+    content: string;
+    salience?: number;
+    source?: string;
+    company_id?: number;
+    task_id?: number;
+  }) => post<{ memory: import("@/lib/types").MemoryItem; created: boolean }>(`/memories`, input),
+  updateMemory: (
+    id: number,
+    data: {
+      title?: string;
+      kind?: string;
+      content?: string;
+      status?: string;
+      salience?: number;
+    },
+  ) => patch<{ memory: import("@/lib/types").MemoryItem }>(`/memories/${id}`, data),
   deleteMemory: (id: number) => del<{ deleted: boolean; id: number }>(`/memories/${id}`),
   clearAllMemories: () => del<{ deleted: Record<string, number> }>(`/memories/all`),
   recallMemories: (input: {
-    query?: string; entity?: string; task_id?: number; limit?: number; include_expired?: boolean;
-  }) =>
-    post<{ count: number; memories: import("@/lib/types").MemoryItem[] }>(`/memories/recall`, input),
+    query?: string;
+    entity?: string;
+    task_id?: number;
+    limit?: number;
+    include_expired?: boolean;
+  }) => post<{ count: number; memories: import("@/lib/types").MemoryItem[] }>(`/memories/recall`, input),
   memoryStats: () =>
     get<{ total: number; stats: import("@/lib/types").MemoryStatItem[]; enabled: boolean }>(`/memories/stats`),
   memoryEntities: (kind?: string, limit?: number) => {

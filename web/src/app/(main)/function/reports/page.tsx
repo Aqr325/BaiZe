@@ -96,7 +96,9 @@ export default function PentestReportsPage() {
         </Button>
       </div>
 
-      {error ? <div className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
+      {error ? (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>
+      ) : null}
 
       <Card>
         <Table>
@@ -145,11 +147,21 @@ export default function PentestReportsPage() {
                     <TableCell className="text-muted-foreground text-sm">{fmtDate(t.created_at, ui)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button size="sm" variant="outline" disabled={busyId !== ""} onClick={() => void download(t, "html")}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busyId !== ""}
+                          onClick={() => void download(t, "html")}
+                        >
                           {busyId === t.id + "html" ? <Loader2Icon className="h-3 w-3 animate-spin" /> : null}
                           {ui("screen.pentestReports.downloadHtml")}
                         </Button>
-                        <Button size="sm" variant="outline" disabled={busyId !== ""} onClick={() => void download(t, "md")}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busyId !== ""}
+                          onClick={() => void download(t, "md")}
+                        >
                           {busyId === t.id + "md" ? <Loader2Icon className="h-3 w-3 animate-spin" /> : null}
                           {ui("screen.pentestReports.downloadMd")}
                         </Button>

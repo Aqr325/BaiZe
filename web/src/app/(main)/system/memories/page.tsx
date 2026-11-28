@@ -31,14 +31,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { type UITranslate, useUITranslation } from "@/i18n/use-ui-translation";
@@ -81,7 +74,14 @@ type FormState = {
   taskId: string;
 };
 const emptyForm: FormState = {
-  id: null, title: "", content: "", scope: "global", kind: "fact", salience: 0.6, companyId: "", taskId: "",
+  id: null,
+  title: "",
+  content: "",
+  scope: "global",
+  kind: "fact",
+  salience: 0.6,
+  companyId: "",
+  taskId: "",
 };
 
 export default function MemoriesPage() {
@@ -163,10 +163,13 @@ export default function MemoriesPage() {
     void loadStats();
     void loadEntities();
     void loadMemories();
-    void api.settings().then((s) => {
-      if (typeof s.memory_auto_extract === "boolean") setAutoExtract(s.memory_auto_extract);
-      if (typeof s.memory_enabled === "boolean") setEnabled(s.memory_enabled);
-    }).catch(() => {});
+    void api
+      .settings()
+      .then((s) => {
+        if (typeof s.memory_auto_extract === "boolean") setAutoExtract(s.memory_auto_extract);
+        if (typeof s.memory_enabled === "boolean") setEnabled(s.memory_enabled);
+      })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -219,8 +222,13 @@ export default function MemoriesPage() {
   };
   const openEdit = (m: MemoryItem) => {
     setForm({
-      id: m.id, title: m.title, content: m.content, scope: m.scope, kind: m.kind,
-      salience: m.salience, companyId: m.company_id ? String(m.company_id) : "",
+      id: m.id,
+      title: m.title,
+      content: m.content,
+      scope: m.scope,
+      kind: m.kind,
+      salience: m.salience,
+      companyId: m.company_id ? String(m.company_id) : "",
       taskId: m.task_id ? String(m.task_id) : "",
     });
     setSheetOpen(true);
@@ -243,7 +251,10 @@ export default function MemoriesPage() {
       };
       if (form.id) {
         await api.updateMemory(form.id, {
-          title: payload.title, kind: payload.kind, content: payload.content, salience: payload.salience,
+          title: payload.title,
+          kind: payload.kind,
+          content: payload.content,
+          salience: payload.salience,
         });
         toast.success(ui("memory.updated"));
       } else {
@@ -322,8 +333,12 @@ export default function MemoriesPage() {
               <div className="truncate font-medium">{m.title}</div>
               <div className="text-muted-foreground truncate text-xs">{m.content}</div>
             </TableCell>
-            <TableCell><Badge variant="outline">{scopeLabel(m.scope, ui)}</Badge></TableCell>
-            <TableCell><Badge variant="secondary">{kindLabel(m.kind, ui)}</Badge></TableCell>
+            <TableCell>
+              <Badge variant="outline">{scopeLabel(m.scope, ui)}</Badge>
+            </TableCell>
+            <TableCell>
+              <Badge variant="secondary">{kindLabel(m.kind, ui)}</Badge>
+            </TableCell>
             <TableCell className="tabular-nums">{m.salience.toFixed(2)}</TableCell>
             <TableCell className="tabular-nums">{m.hit_count}</TableCell>
             {withScore && <TableCell className="tabular-nums font-medium">{m.score?.toFixed(3) ?? "—"}</TableCell>}
@@ -362,12 +377,24 @@ export default function MemoriesPage() {
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2 text-sm">
           <div className="flex items-center gap-2">
-            <span className="text-muted-foreground" title={ui("memory.autoExtractHelp")}>{ui("memory.autoExtract")}</span>
-            <Switch checked={autoExtract} disabled={autoSaving} onCheckedChange={toggleAutoExtract} aria-label={ui("memory.autoExtract")} />
+            <span className="text-muted-foreground" title={ui("memory.autoExtractHelp")}>
+              {ui("memory.autoExtract")}
+            </span>
+            <Switch
+              checked={autoExtract}
+              disabled={autoSaving}
+              onCheckedChange={toggleAutoExtract}
+              aria-label={ui("memory.autoExtract")}
+            />
           </div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">{ui("memory.enabled")}</span>
-            <Switch checked={enabled} disabled={enabling} onCheckedChange={toggleEnabled} aria-label={ui("memory.enabled")} />
+            <Switch
+              checked={enabled}
+              disabled={enabling}
+              onCheckedChange={toggleEnabled}
+              aria-label={ui("memory.enabled")}
+            />
             <Button variant="destructive" size="sm" onClick={() => setClearOpen(true)}>
               <Trash2Icon className="size-4" />
               {ui("memory.clearAll")}
@@ -392,7 +419,11 @@ export default function MemoriesPage() {
             <div className="flex flex-wrap gap-1.5">
               {SCOPES.map((s) => {
                 const c = stats.filter((x) => x.scope === s).reduce((a, b) => a + b.count, 0);
-                return <Badge key={s} variant="outline">{scopeLabel(s, ui)} {c}</Badge>;
+                return (
+                  <Badge key={s} variant="outline">
+                    {scopeLabel(s, ui)} {c}
+                  </Badge>
+                );
               })}
             </div>
           </CardContent>
@@ -403,7 +434,11 @@ export default function MemoriesPage() {
             <div className="flex flex-wrap gap-1.5">
               {KINDS.map((k) => {
                 const c = stats.filter((x) => x.kind === k).reduce((a, b) => a + b.count, 0);
-                return <Badge key={k} variant="secondary">{kindLabel(k, ui)} {c}</Badge>;
+                return (
+                  <Badge key={k} variant="secondary">
+                    {kindLabel(k, ui)} {c}
+                  </Badge>
+                );
               })}
             </div>
           </CardContent>
@@ -425,26 +460,60 @@ export default function MemoriesPage() {
                 className="pl-8"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") void loadMemories(); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void loadMemories();
+                }}
                 placeholder={ui("memory.searchPlaceholder")}
               />
             </div>
-            <NativeSelect value={scope} onChange={(e) => setScope(e.target.value)} aria-label={ui("memory.filterScope")}>
-              <NativeSelectOption value="">{ui("memory.all")} · {ui("memory.filterScope")}</NativeSelectOption>
-              {SCOPES.map((s) => <NativeSelectOption key={s} value={s}>{scopeLabel(s, ui)}</NativeSelectOption>)}
+            <NativeSelect
+              value={scope}
+              onChange={(e) => setScope(e.target.value)}
+              aria-label={ui("memory.filterScope")}
+            >
+              <NativeSelectOption value="">
+                {ui("memory.all")} · {ui("memory.filterScope")}
+              </NativeSelectOption>
+              {SCOPES.map((s) => (
+                <NativeSelectOption key={s} value={s}>
+                  {scopeLabel(s, ui)}
+                </NativeSelectOption>
+              ))}
             </NativeSelect>
             <NativeSelect value={kind} onChange={(e) => setKind(e.target.value)} aria-label={ui("memory.filterKind")}>
-              <NativeSelectOption value="">{ui("memory.all")} · {ui("memory.filterKind")}</NativeSelectOption>
-              {KINDS.map((k) => <NativeSelectOption key={k} value={k}>{kindLabel(k, ui)}</NativeSelectOption>)}
+              <NativeSelectOption value="">
+                {ui("memory.all")} · {ui("memory.filterKind")}
+              </NativeSelectOption>
+              {KINDS.map((k) => (
+                <NativeSelectOption key={k} value={k}>
+                  {kindLabel(k, ui)}
+                </NativeSelectOption>
+              ))}
             </NativeSelect>
-            <NativeSelect value={status} onChange={(e) => setStatus(e.target.value)} aria-label={ui("memory.filterStatus")}>
-              <NativeSelectOption value="">{ui("memory.all")} · {ui("memory.filterStatus")}</NativeSelectOption>
+            <NativeSelect
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              aria-label={ui("memory.filterStatus")}
+            >
+              <NativeSelectOption value="">
+                {ui("memory.all")} · {ui("memory.filterStatus")}
+              </NativeSelectOption>
               <NativeSelectOption value="active">{ui("memory.status.active")}</NativeSelectOption>
               <NativeSelectOption value="archived">{ui("memory.status.archived")}</NativeSelectOption>
             </NativeSelect>
-            <NativeSelect value={entity} onChange={(e) => setEntity(e.target.value)} aria-label={ui("memory.filterEntity")}>
-              <NativeSelectOption value="">{ui("memory.all")} · {ui("memory.filterEntity")}</NativeSelectOption>
-              {entities.map((en) => <NativeSelectOption key={en.id} value={en.name}>{en.name}</NativeSelectOption>)}
+            <NativeSelect
+              value={entity}
+              onChange={(e) => setEntity(e.target.value)}
+              aria-label={ui("memory.filterEntity")}
+            >
+              <NativeSelectOption value="">
+                {ui("memory.all")} · {ui("memory.filterEntity")}
+              </NativeSelectOption>
+              {entities.map((en) => (
+                <NativeSelectOption key={en.id} value={en.name}>
+                  {en.name}
+                </NativeSelectOption>
+              ))}
             </NativeSelect>
             <Button variant="outline" size="sm" onClick={() => void loadMemories()} disabled={loading}>
               <RefreshCwIcon className={`size-4 ${loading ? "animate-spin" : ""}`} />
@@ -458,7 +527,9 @@ export default function MemoriesPage() {
           <div className="rounded-md border">
             {memories.length === 0 && !loading ? (
               <div className="text-muted-foreground p-8 text-center text-sm">{ui("memory.empty")}</div>
-            ) : renderTable(memories)}
+            ) : (
+              renderTable(memories)
+            )}
           </div>
         </TabsContent>
 
@@ -467,7 +538,12 @@ export default function MemoriesPage() {
             <CardContent className="grid gap-3 pt-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="recall-q">{ui("memory.recallQuery")}</Label>
-                <Input id="recall-q" value={recallQuery} onChange={(e) => setRecallQuery(e.target.value)} placeholder={ui("memory.recallQueryPlaceholder")} />
+                <Input
+                  id="recall-q"
+                  value={recallQuery}
+                  onChange={(e) => setRecallQuery(e.target.value)}
+                  placeholder={ui("memory.recallQueryPlaceholder")}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="recall-entity">{ui("memory.recallEntity")}</Label>
@@ -475,11 +551,20 @@ export default function MemoriesPage() {
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="recall-task">{ui("memory.recallTaskId")}</Label>
-                <Input id="recall-task" value={recallTask} onChange={(e) => setRecallTask(e.target.value)} inputMode="numeric" />
+                <Input
+                  id="recall-task"
+                  value={recallTask}
+                  onChange={(e) => setRecallTask(e.target.value)}
+                  inputMode="numeric"
+                />
               </div>
               <div className="flex items-end gap-3 pb-1">
                 <div className="flex items-center gap-2 text-sm">
-                  <Switch checked={recallExpired} onCheckedChange={setRecallExpired} aria-label={ui("memory.recallIncludeExpired")} />
+                  <Switch
+                    checked={recallExpired}
+                    onCheckedChange={setRecallExpired}
+                    aria-label={ui("memory.recallIncludeExpired")}
+                  />
                   <span>{ui("memory.recallIncludeExpired")}</span>
                 </div>
                 <Button onClick={() => void runRecall()} disabled={recalling}>
@@ -497,7 +582,9 @@ export default function MemoriesPage() {
               </div>
               {recallResult.length === 0 ? (
                 <div className="text-muted-foreground p-8 text-center text-sm">{ui("memory.recallNone")}</div>
-              ) : renderTable(recallResult, true)}
+              ) : (
+                renderTable(recallResult, true)
+              )}
             </div>
           )}
         </TabsContent>
@@ -522,11 +609,19 @@ export default function MemoriesPage() {
                   {entities.map((en) => (
                     <TableRow key={en.id}>
                       <TableCell className="font-medium">{en.name}</TableCell>
-                      <TableCell><Badge variant="outline">{en.kind}</Badge></TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{en.kind}</Badge>
+                      </TableCell>
                       <TableCell className="tabular-nums">{en.ref_count}</TableCell>
                       <TableCell className="text-muted-foreground text-xs">{fmtTime(en.last_seen, ui)}</TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="sm" onClick={() => { setEntity(en.name); }}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setEntity(en.name);
+                          }}
+                        >
                           {ui("memory.filterEntity")}
                         </Button>
                       </TableCell>
@@ -547,46 +642,95 @@ export default function MemoriesPage() {
           <div className="grid gap-4 px-4 py-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="m-title">{ui("memory.form.title")}</Label>
-              <Input id="m-title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={ui("memory.form.titlePlaceholder")} />
+              <Input
+                id="m-title"
+                value={form.title}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
+                placeholder={ui("memory.form.titlePlaceholder")}
+              />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="m-content">{ui("memory.form.content")}</Label>
-              <Textarea id="m-content" rows={6} value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder={ui("memory.form.contentPlaceholder")} />
+              <Textarea
+                id="m-content"
+                rows={6}
+                value={form.content}
+                onChange={(e) => setForm({ ...form, content: e.target.value })}
+                placeholder={ui("memory.form.contentPlaceholder")}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="m-scope">{ui("memory.form.scope")}</Label>
-                <NativeSelect id="m-scope" value={form.scope} onChange={(e) => setForm({ ...form, scope: e.target.value })}>
-                  {SCOPES.map((s) => <NativeSelectOption key={s} value={s}>{scopeLabel(s, ui)}</NativeSelectOption>)}
+                <NativeSelect
+                  id="m-scope"
+                  value={form.scope}
+                  onChange={(e) => setForm({ ...form, scope: e.target.value })}
+                >
+                  {SCOPES.map((s) => (
+                    <NativeSelectOption key={s} value={s}>
+                      {scopeLabel(s, ui)}
+                    </NativeSelectOption>
+                  ))}
                 </NativeSelect>
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="m-kind">{ui("memory.form.kind")}</Label>
-                <NativeSelect id="m-kind" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
-                  {KINDS.map((k) => <NativeSelectOption key={k} value={k}>{kindLabel(k, ui)}</NativeSelectOption>)}
+                <NativeSelect
+                  id="m-kind"
+                  value={form.kind}
+                  onChange={(e) => setForm({ ...form, kind: e.target.value })}
+                >
+                  {KINDS.map((k) => (
+                    <NativeSelectOption key={k} value={k}>
+                      {kindLabel(k, ui)}
+                    </NativeSelectOption>
+                  ))}
                 </NativeSelect>
               </div>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="m-salience">{ui("memory.form.salience")}</Label>
-              <Input id="m-salience" type="number" min={0} max={1} step={0.1} value={form.salience} onChange={(e) => setForm({ ...form, salience: Number(e.target.value) })} />
+              <Input
+                id="m-salience"
+                type="number"
+                min={0}
+                max={1}
+                step={0.1}
+                value={form.salience}
+                onChange={(e) => setForm({ ...form, salience: Number(e.target.value) })}
+              />
               <p className="text-muted-foreground text-xs">{ui("memory.form.salienceHelp")}</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="m-company">{ui("memory.form.companyId")}</Label>
-                <Input id="m-company" value={form.companyId} onChange={(e) => setForm({ ...form, companyId: e.target.value })} inputMode="numeric" />
+                <Input
+                  id="m-company"
+                  value={form.companyId}
+                  onChange={(e) => setForm({ ...form, companyId: e.target.value })}
+                  inputMode="numeric"
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="m-task">{ui("memory.form.taskId")}</Label>
-                <Input id="m-task" value={form.taskId} onChange={(e) => setForm({ ...form, taskId: e.target.value })} inputMode="numeric" />
+                <Input
+                  id="m-task"
+                  value={form.taskId}
+                  onChange={(e) => setForm({ ...form, taskId: e.target.value })}
+                  inputMode="numeric"
+                />
               </div>
             </div>
             <p className="text-muted-foreground text-xs">{ui("memory.form.scopeHelp")}</p>
           </div>
           <SheetFooter>
-            <Button variant="outline" onClick={() => setSheetOpen(false)}>{ui("memory.cancel")}</Button>
-            <Button onClick={() => void save()} disabled={saving}>{ui("memory.save")}</Button>
+            <Button variant="outline" onClick={() => setSheetOpen(false)}>
+              {ui("memory.cancel")}
+            </Button>
+            <Button onClick={() => void save()} disabled={saving}>
+              {ui("memory.save")}
+            </Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>
@@ -606,7 +750,12 @@ export default function MemoriesPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={!!deleting} onOpenChange={(o) => { if (!o) setDeleting(null); }}>
+      <AlertDialog
+        open={!!deleting}
+        onOpenChange={(o) => {
+          if (!o) setDeleting(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{ui("memory.deleteConfirm")}</AlertDialogTitle>
@@ -619,7 +768,12 @@ export default function MemoriesPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={!!graph} onOpenChange={(o) => { if (!o) setGraph(null); }}>
+      <AlertDialog
+        open={!!graph}
+        onOpenChange={(o) => {
+          if (!o) setGraph(null);
+        }}
+      >
         <AlertDialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
           <AlertDialogHeader>
             <AlertDialogTitle>{ui("memory.graphTitle")}</AlertDialogTitle>
@@ -631,9 +785,15 @@ export default function MemoriesPage() {
                 <BrainIcon className="size-4" /> {ui("memory.graphEntities")}
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {graph?.entities?.length ? graph.entities.map((en) => (
-                  <Badge key={en.id} variant="outline">{en.kind}: {en.name}</Badge>
-                )) : <span className="text-muted-foreground text-sm">{ui("memory.graphNone")}</span>}
+                {graph?.entities?.length ? (
+                  graph.entities.map((en) => (
+                    <Badge key={en.id} variant="outline">
+                      {en.kind}: {en.name}
+                    </Badge>
+                  ))
+                ) : (
+                  <span className="text-muted-foreground text-sm">{ui("memory.graphNone")}</span>
+                )}
               </div>
             </div>
             <div>

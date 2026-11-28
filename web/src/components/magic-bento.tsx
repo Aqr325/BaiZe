@@ -1,8 +1,8 @@
 // @ts-nocheck
-'use client';
+"use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { HugeiconsIcon } from '@hugeicons/react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+
 import {
   FigmaIcon,
   FingerPrintIcon,
@@ -12,60 +12,61 @@ import {
   NotionIcon,
   SlackIcon,
   SparklesIcon,
-  Tick02Icon
-} from '@hugeicons/core-free-icons';
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 
-import './magic-bento.css';
+import "./magic-bento.css";
 
-const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 const THEMES = {
   dark: {
-    '--mb-surface': 'linear-gradient(180deg, #1a1820 0%, #121116 100%)',
-    '--mb-edge': 'rgba(255, 255, 255, 0.07)',
-    '--mb-highlight': 'rgba(255, 255, 255, 0.06)',
-    '--mb-shadow': '0 24px 48px -28px rgba(0, 0, 0, 0.85), 0 8px 18px -12px rgba(0, 0, 0, 0.6)',
-    '--mb-tile': 'linear-gradient(180deg, #3a3644 0%, #27242f 100%)',
-    '--mb-tile-edge': 'rgba(255, 255, 255, 0.07)',
-    '--mb-tile-highlight': 'rgba(255, 255, 255, 0.12)',
-    '--mb-tile-shadow': '0 4px 10px -4px rgba(0, 0, 0, 0.7)',
-    '--mb-well': 'rgba(255, 255, 255, 0.03)',
-    '--mb-well-edge': 'rgba(255, 255, 255, 0.06)',
-    '--mb-ink': '#f4f4f5',
-    '--mb-muted': 'rgba(244, 244, 245, 0.6)',
-    '--mb-faint': 'rgba(244, 244, 245, 0.3)',
-    '--mb-line': 'rgba(244, 244, 245, 0.1)',
-    '--mb-secondary': '#a1a1aa',
-    '--mb-secondary-ink': '#121016',
-    '--mb-cursor-stroke': 'rgba(18, 16, 22, 0.9)',
-    '--mb-ring': 'rgba(18, 16, 22, 0.85)',
-    '--mb-focus': 'rgba(244, 244, 245, 0.5)',
-    '--mb-glow-alpha': 0.85,
-    '--mb-spot-alpha': 0.07
+    "--mb-surface": "linear-gradient(180deg, #1a1820 0%, #121116 100%)",
+    "--mb-edge": "rgba(255, 255, 255, 0.07)",
+    "--mb-highlight": "rgba(255, 255, 255, 0.06)",
+    "--mb-shadow": "0 24px 48px -28px rgba(0, 0, 0, 0.85), 0 8px 18px -12px rgba(0, 0, 0, 0.6)",
+    "--mb-tile": "linear-gradient(180deg, #3a3644 0%, #27242f 100%)",
+    "--mb-tile-edge": "rgba(255, 255, 255, 0.07)",
+    "--mb-tile-highlight": "rgba(255, 255, 255, 0.12)",
+    "--mb-tile-shadow": "0 4px 10px -4px rgba(0, 0, 0, 0.7)",
+    "--mb-well": "rgba(255, 255, 255, 0.03)",
+    "--mb-well-edge": "rgba(255, 255, 255, 0.06)",
+    "--mb-ink": "#f4f4f5",
+    "--mb-muted": "rgba(244, 244, 245, 0.6)",
+    "--mb-faint": "rgba(244, 244, 245, 0.3)",
+    "--mb-line": "rgba(244, 244, 245, 0.1)",
+    "--mb-secondary": "#a1a1aa",
+    "--mb-secondary-ink": "#121016",
+    "--mb-cursor-stroke": "rgba(18, 16, 22, 0.9)",
+    "--mb-ring": "rgba(18, 16, 22, 0.85)",
+    "--mb-focus": "rgba(244, 244, 245, 0.5)",
+    "--mb-glow-alpha": 0.85,
+    "--mb-spot-alpha": 0.07,
   },
   light: {
-    '--mb-surface': 'linear-gradient(180deg, #ffffff 0%, #f7f7f9 100%)',
-    '--mb-edge': 'rgba(24, 24, 27, 0.08)',
-    '--mb-highlight': 'rgba(255, 255, 255, 1)',
-    '--mb-shadow': '0 24px 48px -30px rgba(24, 24, 27, 0.28), 0 8px 18px -14px rgba(24, 24, 27, 0.16)',
-    '--mb-tile': 'linear-gradient(180deg, #ffffff 0%, #f6f6f8 100%)',
-    '--mb-tile-edge': 'rgba(24, 24, 27, 0.08)',
-    '--mb-tile-highlight': 'rgba(255, 255, 255, 1)',
-    '--mb-tile-shadow': '0 4px 10px -5px rgba(24, 24, 27, 0.22)',
-    '--mb-well': 'rgba(24, 24, 27, 0.025)',
-    '--mb-well-edge': 'rgba(24, 24, 27, 0.06)',
-    '--mb-ink': '#18181b',
-    '--mb-muted': 'rgba(24, 24, 27, 0.6)',
-    '--mb-faint': 'rgba(24, 24, 27, 0.3)',
-    '--mb-line': 'rgba(24, 24, 27, 0.08)',
-    '--mb-secondary': '#71717a',
-    '--mb-secondary-ink': '#ffffff',
-    '--mb-cursor-stroke': '#ffffff',
-    '--mb-ring': '#ffffff',
-    '--mb-focus': 'rgba(24, 24, 27, 0.4)',
-    '--mb-glow-alpha': 0.5,
-    '--mb-spot-alpha': 0.035
-  }
+    "--mb-surface": "linear-gradient(180deg, #ffffff 0%, #f7f7f9 100%)",
+    "--mb-edge": "rgba(24, 24, 27, 0.08)",
+    "--mb-highlight": "rgba(255, 255, 255, 1)",
+    "--mb-shadow": "0 24px 48px -30px rgba(24, 24, 27, 0.28), 0 8px 18px -14px rgba(24, 24, 27, 0.16)",
+    "--mb-tile": "linear-gradient(180deg, #ffffff 0%, #f6f6f8 100%)",
+    "--mb-tile-edge": "rgba(24, 24, 27, 0.08)",
+    "--mb-tile-highlight": "rgba(255, 255, 255, 1)",
+    "--mb-tile-shadow": "0 4px 10px -5px rgba(24, 24, 27, 0.22)",
+    "--mb-well": "rgba(24, 24, 27, 0.025)",
+    "--mb-well-edge": "rgba(24, 24, 27, 0.06)",
+    "--mb-ink": "#18181b",
+    "--mb-muted": "rgba(24, 24, 27, 0.6)",
+    "--mb-faint": "rgba(24, 24, 27, 0.3)",
+    "--mb-line": "rgba(24, 24, 27, 0.08)",
+    "--mb-secondary": "#71717a",
+    "--mb-secondary-ink": "#ffffff",
+    "--mb-cursor-stroke": "#ffffff",
+    "--mb-ring": "#ffffff",
+    "--mb-focus": "rgba(24, 24, 27, 0.4)",
+    "--mb-glow-alpha": 0.5,
+    "--mb-spot-alpha": 0.035,
+  },
 };
 
 const INK = { dark: [244, 244, 245], light: [24, 24, 27] };
@@ -76,42 +77,42 @@ const TILT = 6;
 const MAGNET = 6;
 
 const DEFAULT_ITEMS = [
-  { title: 'Analytics', description: 'Track user behavior', visual: 'analytics' },
-  { title: 'Dashboard', description: 'Centralized data view', visual: 'dashboard' },
+  { title: "Analytics", description: "Track user behavior", visual: "analytics" },
+  { title: "Dashboard", description: "Centralized data view", visual: "dashboard" },
   {
-    title: 'Collaboration',
-    description: 'Work together seamlessly',
-    visual: 'collaboration',
+    title: "Collaboration",
+    description: "Work together seamlessly",
+    visual: "collaboration",
     colSpan: 2,
-    rowSpan: 2
+    rowSpan: 2,
   },
-  { title: 'Automation', description: 'Streamline workflows', visual: 'automation', colSpan: 2, rowSpan: 2 },
-  { title: 'Integration', description: 'Connect favorite tools', visual: 'integration' },
-  { title: 'Security', description: 'Enterprise-grade protection', visual: 'security' }
+  { title: "Automation", description: "Streamline workflows", visual: "automation", colSpan: 2, rowSpan: 2 },
+  { title: "Integration", description: "Connect favorite tools", visual: "integration" },
+  { title: "Security", description: "Enterprise-grade protection", visual: "security" },
 ];
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
-const vars = values => values;
+const vars = (values) => values;
 
-const parseRgb = value => {
+const parseRgb = (value) => {
   if (!value) return null;
   const text = String(value).trim();
   const hex = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(text);
   if (hex) {
-    const full = hex[1].length === 3 ? hex[1].replace(/./g, digit => digit + digit) : hex[1];
-    return [0, 2, 4].map(index => parseInt(full.slice(index, index + 2), 16));
+    const full = hex[1].length === 3 ? hex[1].replace(/./g, (digit) => digit + digit) : hex[1];
+    return [0, 2, 4].map((index) => parseInt(full.slice(index, index + 2), 16));
   }
   const numbers = text.match(/[\d.]+/g);
   if (numbers && numbers.length >= 3 && /^(rgba?\(|[\d.\s,]+$)/i.test(text)) {
-    return numbers.slice(0, 3).map(channel => clamp(Math.round(parseFloat(channel)), 0, 255));
+    return numbers.slice(0, 3).map((channel) => clamp(Math.round(parseFloat(channel)), 0, 255));
   }
   return null;
 };
 
-const inkFor = rgb => {
-  const [r, g, b] = rgb.map(channel => channel / 255);
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55 ? '#121016' : '#ffffff';
+const inkFor = (rgb) => {
+  const [r, g, b] = rgb.map((channel) => channel / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55 ? "#121016" : "#ffffff";
 };
 
 const CHART = [3.1, 3.8, 3.5, 4.9, 4.4, 5.8, 5.3, 6.9, 6.5, 8.2, 9.4, 12.4];
@@ -123,7 +124,7 @@ const curve = (values, width, height) => {
   const high = Math.max(...values);
   const points = values.map((value, index) => [
     (index / (values.length - 1)) * width,
-    top + (1 - (value - low) / (high - low)) * (height - top - bottom)
+    top + (1 - (value - low) / (high - low)) * (height - top - bottom),
   ]);
   const count = points.length;
   const slopes = [];
@@ -164,7 +165,7 @@ const curve = (values, width, height) => {
       const u = 1 - t;
       samples.push([
         u * u * u * x0 + 3 * u * u * t * c1[0] + 3 * u * t * t * c2[0] + t * t * t * x1,
-        u * u * u * y0 + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t * t * t * y1
+        u * u * u * y0 + 3 * u * u * t * c1[1] + 3 * u * t * t * c2[1] + t * t * t * y1,
       ]);
     }
   }
@@ -196,8 +197,8 @@ const AnalyticsVisual = () => {
     if (!plot) return;
     const update = () => {
       const next = { width: plot.clientWidth, height: plot.clientHeight };
-      setSize(previous =>
-        previous && previous.width === next.width && previous.height === next.height ? previous : next
+      setSize((previous) =>
+        previous && previous.width === next.width && previous.height === next.height ? previous : next,
       );
     };
     update();
@@ -208,10 +209,10 @@ const AnalyticsVisual = () => {
 
   const shape = useMemo(
     () => (size && size.width > 4 && size.height > 4 ? curve(CHART, size.width, size.height) : null),
-    [size]
+    [size],
   );
 
-  const scrub = event => {
+  const scrub = (event) => {
     const plot = plotRef.current;
     const chart = chartRef.current;
     const line = scrubRef.current;
@@ -226,7 +227,7 @@ const AnalyticsVisual = () => {
     const index = Math.floor(position);
     const next = Math.min(CHART.length - 1, index + 1);
     const value = CHART[index] + (CHART[next] - CHART[index]) * (position - index);
-    chart.dataset.scrub = '';
+    chart.dataset.scrub = "";
     line.style.transform = `translateX(${x.toFixed(1)}px)`;
     dot.style.transform = `translateY(${y.toFixed(1)}px)`;
     label.textContent = `${value.toFixed(1)}k`;
@@ -236,7 +237,7 @@ const AnalyticsVisual = () => {
   const rest = () => {
     if (chartRef.current) delete chartRef.current.dataset.scrub;
     if (valueRef.current) valueRef.current.textContent = `${CHART[CHART.length - 1].toFixed(1)}k`;
-    if (noteRef.current) noteRef.current.textContent = '+18%';
+    if (noteRef.current) noteRef.current.textContent = "+18%";
   };
 
   return (
@@ -283,8 +284,8 @@ const DashboardVisual = () => (
         <span
           key={index}
           className="magic-bento__bar"
-          data-peak={height === Math.max(...BARS) ? '' : undefined}
-          style={vars({ '--h': height / 100, '--i': index })}
+          data-peak={height === Math.max(...BARS) ? "" : undefined}
+          style={vars({ "--h": height / 100, "--i": index })}
         />
       ))}
     </div>
@@ -305,28 +306,28 @@ const CollaborationVisual = () => (
   <div className="magic-bento__collab magic-bento__well">
     <span className="magic-bento__doc-title">Launch plan</span>
     <div className="magic-bento__lines">
-      <span className="magic-bento__line" style={vars({ '--w': '92%' })} />
-      <span className="magic-bento__line" style={vars({ '--w': '78%' })} />
-      <span className="magic-bento__line" style={vars({ '--w': '86%' })} />
-      <span className="magic-bento__line" style={vars({ '--w': '44%' })} />
-      <span className="magic-bento__line magic-bento__line--gap" style={vars({ '--w': '88%' })} />
-      <span className="magic-bento__line" style={vars({ '--w': '70%' })}>
-        <span className="magic-bento__selection" style={vars({ '--from': '18%', '--span': '58%' })}>
+      <span className="magic-bento__line" style={vars({ "--w": "92%" })} />
+      <span className="magic-bento__line" style={vars({ "--w": "78%" })} />
+      <span className="magic-bento__line" style={vars({ "--w": "86%" })} />
+      <span className="magic-bento__line" style={vars({ "--w": "44%" })} />
+      <span className="magic-bento__line magic-bento__line--gap" style={vars({ "--w": "88%" })} />
+      <span className="magic-bento__line" style={vars({ "--w": "70%" })}>
+        <span className="magic-bento__selection" style={vars({ "--from": "18%", "--span": "58%" })}>
           <span className="magic-bento__caret" />
         </span>
       </span>
-      <span className="magic-bento__line" style={vars({ '--w': '82%' })} />
+      <span className="magic-bento__line" style={vars({ "--w": "82%" })} />
     </div>
     <span
       className="magic-bento__cursor magic-bento__cursor--primary"
-      style={vars({ '--x': '58%', '--y': '52%', '--i': 0, '--path': 'magic-bento-path-a' })}
+      style={vars({ "--x": "58%", "--y": "52%", "--i": 0, "--path": "magic-bento-path-a" })}
     >
       {ARROW}
       <span className="magic-bento__cursor-name">Maya</span>
     </span>
     <span
       className="magic-bento__cursor magic-bento__cursor--secondary"
-      style={vars({ '--x': '30%', '--y': '24%', '--i': 1, '--path': 'magic-bento-path-b' })}
+      style={vars({ "--x": "30%", "--y": "24%", "--i": 1, "--path": "magic-bento-path-b" })}
     >
       {ARROW}
       <span className="magic-bento__cursor-name">Leo</span>
@@ -335,14 +336,14 @@ const CollaborationVisual = () => (
 );
 
 const STEPS = [
-  { label: 'Install', time: '8s' },
-  { label: 'Build', time: '12s' },
-  { label: 'Test', time: '48s' },
-  { label: 'Deploy', time: '9s' }
+  { label: "Install", time: "8s" },
+  { label: "Build", time: "12s" },
+  { label: "Test", time: "48s" },
+  { label: "Deploy", time: "9s" },
 ];
 
 const AutomationVisual = () => (
-  <div className="magic-bento__flow" style={vars({ '--n': STEPS.length })}>
+  <div className="magic-bento__flow" style={vars({ "--n": STEPS.length })}>
     <div className="magic-bento__flow-trigger magic-bento__tile">
       <span className="magic-bento__flow-glyph">
         <HugeiconsIcon icon={GitBranchIcon} size={15} strokeWidth={1.8} />
@@ -357,7 +358,7 @@ const AutomationVisual = () => (
         <span className="magic-bento__rail-fill" />
       </span>
       {STEPS.map((step, index) => (
-        <li key={step.label} className="magic-bento__step" style={vars({ '--i': index })}>
+        <li key={step.label} className="magic-bento__step" style={vars({ "--i": index })}>
           <span className="magic-bento__status">
             <span className="magic-bento__pending" />
             <span className="magic-bento__spinner" />
@@ -374,16 +375,16 @@ const AutomationVisual = () => (
 );
 
 const APPS = [
-  { icon: SlackIcon, x: '17%', y: '24%' },
-  { icon: GithubIcon, x: '83%', y: '24%' },
-  { icon: FigmaIcon, x: '17%', y: '78%' },
-  { icon: NotionIcon, x: '83%', y: '78%' }
+  { icon: SlackIcon, x: "17%", y: "24%" },
+  { icon: GithubIcon, x: "83%", y: "24%" },
+  { icon: FigmaIcon, x: "17%", y: "78%" },
+  { icon: NotionIcon, x: "83%", y: "78%" },
 ];
 
 const IntegrationVisual = () => (
   <div className="magic-bento__hub">
     <svg className="magic-bento__hub-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-      {APPS.map(app => (
+      {APPS.map((app) => (
         <line key={app.x + app.y} x1={parseFloat(app.x)} y1={parseFloat(app.y)} x2="50" y2="51" pathLength="1" />
       ))}
     </svg>
@@ -391,21 +392,21 @@ const IntegrationVisual = () => (
       <span
         key={`packet-${index}`}
         className="magic-bento__packet"
-        style={vars({ '--x': app.x, '--y': app.y, '--i': index })}
+        style={vars({ "--x": app.x, "--y": app.y, "--i": index })}
       />
     ))}
     {APPS.map((app, index) => (
       <span
         key={app.x + app.y}
         className="magic-bento__hub-node magic-bento__tile"
-        style={vars({ '--x': app.x, '--y': app.y, '--s': '26px', '--i': index + 1 })}
+        style={vars({ "--x": app.x, "--y": app.y, "--s": "26px", "--i": index + 1 })}
       >
         <HugeiconsIcon icon={app.icon} size={14} strokeWidth={1.8} />
       </span>
     ))}
     <span
       className="magic-bento__hub-node magic-bento__tile"
-      style={vars({ '--x': '50%', '--y': '51%', '--s': '34px', '--i': 0 })}
+      style={vars({ "--x": "50%", "--y": "51%", "--s": "34px", "--i": 0 })}
     >
       <HugeiconsIcon icon={SparklesIcon} size={17} strokeWidth={1.8} />
     </span>
@@ -413,8 +414,8 @@ const IntegrationVisual = () => (
 );
 
 const SETTINGS = [
-  { icon: Key01Icon, label: 'SSO' },
-  { icon: FingerPrintIcon, label: '2FA' }
+  { icon: Key01Icon, label: "SSO" },
+  { icon: FingerPrintIcon, label: "2FA" },
 ];
 
 const SecurityVisual = () => (
@@ -423,7 +424,7 @@ const SecurityVisual = () => (
       <div key={setting.label} className="magic-bento__setting magic-bento__tile">
         <HugeiconsIcon icon={setting.icon} size={14} strokeWidth={1.8} />
         <span className="magic-bento__setting-label">{setting.label}</span>
-        <span className="magic-bento__switch" style={vars({ '--i': index })} />
+        <span className="magic-bento__switch" style={vars({ "--i": index })} />
       </div>
     ))}
   </div>
@@ -435,37 +436,37 @@ const VISUALS = {
   collaboration: CollaborationVisual,
   automation: AutomationVisual,
   integration: IntegrationVisual,
-  security: SecurityVisual
+  security: SecurityVisual,
 };
 
 const REPLAY = new Set([
-  'magic-bento-draw',
-  'magic-bento-fade',
-  'magic-bento-grow',
-  'magic-bento-pop',
-  'magic-bento-select',
-  'magic-bento-wait',
-  'magic-bento-run',
-  'magic-bento-check',
-  'magic-bento-rail',
-  'magic-bento-switch-track',
-  'magic-bento-switch-knob'
+  "magic-bento-draw",
+  "magic-bento-fade",
+  "magic-bento-grow",
+  "magic-bento-pop",
+  "magic-bento-select",
+  "magic-bento-wait",
+  "magic-bento-run",
+  "magic-bento-check",
+  "magic-bento-rail",
+  "magic-bento-switch-track",
+  "magic-bento-switch-knob",
 ]);
 
 const FLOW = new Set([
-  'magic-bento-wait',
-  'magic-bento-run',
-  'magic-bento-check',
-  'magic-bento-rail',
-  'magic-bento-fade'
+  "magic-bento-wait",
+  "magic-bento-run",
+  "magic-bento-check",
+  "magic-bento-rail",
+  "magic-bento-fade",
 ]);
 
-const finite = animation => {
+const finite = (animation) => {
   const timing = animation.effect?.getTiming?.();
   return timing ? timing.iterations !== Infinity : false;
 };
 
-const nameOf = animation => animation.animationName || '';
+const nameOf = (animation) => animation.animationName || "";
 
 const MagicBento = ({
   items = DEFAULT_ITEMS,
@@ -473,7 +474,7 @@ const MagicBento = ({
   rowHeight = 200,
   gap = 12,
   radius = 20,
-  theme = 'dark',
+  theme = "dark",
   glowColor,
   textAutoHide = true,
   enableBorderGlow = true,
@@ -487,8 +488,8 @@ const MagicBento = ({
   intro = true,
   disableAnimations = false,
   onItemClick,
-  className = '',
-  style
+  className = "",
+  style,
 }) => {
   const rootRef = useRef(null);
   const cellRefs = useRef([]);
@@ -497,7 +498,7 @@ const MagicBento = ({
   const engineRef = useRef(null);
   const [cols, setCols] = useState(Math.max(1, Math.round(columns)));
 
-  const palette = theme === 'light' ? 'light' : 'dark';
+  const palette = theme === "light" ? "light" : "dark";
   const glow = parseRgb(glowColor) ?? INK[palette];
   const settings = {
     items,
@@ -514,7 +515,7 @@ const MagicBento = ({
     intro,
     disableAnimations,
     onItemClick,
-    glow
+    glow,
   };
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
@@ -523,12 +524,12 @@ const MagicBento = ({
     const root = rootRef.current;
     if (!root) return;
 
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const motion = !settingsRef.current.disableAnimations && !reduced;
     const playIntro = motion && settingsRef.current.intro;
-    if (motion) root.dataset.motion = '';
+    if (motion) root.dataset.motion = "";
     else delete root.dataset.motion;
-    if (playIntro) root.dataset.intro = '';
+    if (playIntro) root.dataset.intro = "";
     else delete root.dataset.intro;
 
     const pointer = { x: -1e5, y: -1e5, inside: false, down: -1 };
@@ -546,7 +547,7 @@ const MagicBento = ({
     let introTimer = 0;
     const lastFlow = [];
 
-    const stateFor = index => {
+    const stateFor = (index) => {
       if (!states[index]) {
         states[index] = {
           hot: 0,
@@ -563,7 +564,7 @@ const MagicBento = ({
           stars: 0,
           particles: null,
           active: false,
-          written: {}
+          written: {},
         };
       }
       return states[index];
@@ -578,7 +579,7 @@ const MagicBento = ({
     const measure = () => {
       dirty = false;
       bounds = root.getBoundingClientRect();
-      rects = cellRefs.current.map(cell => (cell ? cell.getBoundingClientRect() : null));
+      rects = cellRefs.current.map((cell) => (cell ? cell.getBoundingClientRect() : null));
       const ratio = Math.min(window.devicePixelRatio || 1, 2);
       starRefs.current.forEach((canvas, index) => {
         const rect = rects[index];
@@ -603,7 +604,7 @@ const MagicBento = ({
         vy: -4 - Math.random() * 10,
         size: 0.6 + Math.random() * 1.1,
         phase: Math.random() * Math.PI * 2,
-        rate: 1.2 + Math.random() * 2.4
+        rate: 1.2 + Math.random() * 2.4,
       }));
       return state.particles;
     };
@@ -611,7 +612,7 @@ const MagicBento = ({
     const drawStars = (index, rect, state, lx, ly, dt, now) => {
       const canvas = starRefs.current[index];
       if (!canvas) return;
-      const context = canvas.getContext('2d');
+      const context = canvas.getContext("2d");
       if (!context) return;
       const ratio = canvas.width / Math.max(1, rect.width);
       context.setTransform(1, 0, 0, 1, 0, 0);
@@ -649,7 +650,7 @@ const MagicBento = ({
       for (const animation of card.getAnimations({ subtree: true })) {
         if (!filter.has(nameOf(animation)) || !finite(animation)) continue;
         const target = animation.effect instanceof KeyframeEffect ? animation.effect.target : null;
-        if (target instanceof Element && target.classList.contains('magic-bento__cursor')) continue;
+        if (target instanceof Element && target.classList.contains("magic-bento__cursor")) continue;
         animation.currentTime = 0;
         animation.play();
       }
@@ -666,11 +667,11 @@ const MagicBento = ({
           Math.hypot(x - bounds.left, y - bounds.top),
           Math.hypot(x - bounds.right, y - bounds.top),
           Math.hypot(x - bounds.left, y - bounds.bottom),
-          Math.hypot(x - bounds.right, y - bounds.bottom)
+          Math.hypot(x - bounds.right, y - bounds.bottom),
         ) + 140;
     };
 
-    const frame = now => {
+    const frame = (now) => {
       raf = 0;
       const dt = Math.min(0.05, (now - last) / 1000 || 0);
       last = now;
@@ -729,8 +730,8 @@ const MagicBento = ({
         if (inside !== state.active) {
           state.active = inside;
           if (inside) {
-            card.dataset.active = '';
-            if (now - (lastFlow[index] || -1e9) > 3200 && card.querySelector('.magic-bento__steps')) {
+            card.dataset.active = "";
+            if (now - (lastFlow[index] || -1e9) > 3200 && card.querySelector(".magic-bento__steps")) {
               lastFlow[index] = now;
               replay(card, FLOW);
             }
@@ -750,13 +751,13 @@ const MagicBento = ({
           tilt ? -v * 2 * TILT : 0,
           tilt ? u * 2 * TILT : 0,
           magnet ? u * 2 * MAGNET : 0,
-          magnet ? v * 2 * MAGNET : 0
+          magnet ? v * 2 * MAGNET : 0,
         ];
         const keys = [
-          ['rx', 'vrx'],
-          ['ry', 'vry'],
-          ['tx', 'vtx'],
-          ['ty', 'vty']
+          ["rx", "vrx"],
+          ["ry", "vry"],
+          ["tx", "vtx"],
+          ["ty", "vty"],
         ];
         const steps = Math.max(1, Math.ceil(dt / (1 / 240)));
         const h = dt / steps;
@@ -780,19 +781,19 @@ const MagicBento = ({
           state.vpress = 0;
         } else busy = true;
 
-        write(card, state, '--mb-x', `${lx.toFixed(1)}px`);
-        write(card, state, '--mb-y', `${ly.toFixed(1)}px`);
-        write(card, state, '--mb-near', (s.enableBorderGlow ? light.near : 0).toFixed(3));
-        write(card, state, '--mb-hot', state.hot.toFixed(3));
-        write(card, state, '--mb-rx', `${state.rx.toFixed(3)}deg`);
-        write(card, state, '--mb-ry', `${state.ry.toFixed(3)}deg`);
-        write(card, state, '--mb-tx', `${state.tx.toFixed(2)}px`);
-        write(card, state, '--mb-ty', `${state.ty.toFixed(2)}px`);
-        write(card, state, '--mb-press', state.press.toFixed(4));
-        write(card, state, '--mb-wx', `${(wave.x - rect.left).toFixed(1)}px`);
-        write(card, state, '--mb-wy', `${(wave.y - rect.top).toFixed(1)}px`);
-        write(card, state, '--mb-wr', `${waveRadius.toFixed(1)}px`);
-        write(card, state, '--mb-wa', waveAlpha.toFixed(3));
+        write(card, state, "--mb-x", `${lx.toFixed(1)}px`);
+        write(card, state, "--mb-y", `${ly.toFixed(1)}px`);
+        write(card, state, "--mb-near", (s.enableBorderGlow ? light.near : 0).toFixed(3));
+        write(card, state, "--mb-hot", state.hot.toFixed(3));
+        write(card, state, "--mb-rx", `${state.rx.toFixed(3)}deg`);
+        write(card, state, "--mb-ry", `${state.ry.toFixed(3)}deg`);
+        write(card, state, "--mb-tx", `${state.tx.toFixed(2)}px`);
+        write(card, state, "--mb-ty", `${state.ty.toFixed(2)}px`);
+        write(card, state, "--mb-press", state.press.toFixed(4));
+        write(card, state, "--mb-wx", `${(wave.x - rect.left).toFixed(1)}px`);
+        write(card, state, "--mb-wy", `${(wave.y - rect.top).toFixed(1)}px`);
+        write(card, state, "--mb-wr", `${waveRadius.toFixed(1)}px`);
+        write(card, state, "--mb-wa", waveAlpha.toFixed(3));
 
         if (s.enableStars && starRefs.current[index]) {
           const starTarget = inside && motion ? 1 : 0;
@@ -818,27 +819,27 @@ const MagicBento = ({
       raf = requestAnimationFrame(frame);
     };
 
-    const cardIndex = target => {
+    const cardIndex = (target) => {
       if (!(target instanceof Element)) return -1;
-      const card = target.closest('.magic-bento__card');
+      const card = target.closest(".magic-bento__card");
       return card instanceof HTMLElement ? cardRefs.current.indexOf(card) : -1;
     };
 
-    const onPointerMove = event => {
+    const onPointerMove = (event) => {
       pointer.x = event.clientX;
       pointer.y = event.clientY;
       pointer.inside = true;
       wake();
     };
 
-    const onPointerOut = event => {
+    const onPointerOut = (event) => {
       if (event.relatedTarget) return;
       pointer.inside = false;
       pointer.down = -1;
       wake();
     };
 
-    const onPointerDown = event => {
+    const onPointerDown = (event) => {
       pointer.x = event.clientX;
       pointer.y = event.clientY;
       pointer.inside = true;
@@ -865,7 +866,7 @@ const MagicBento = ({
       wake();
     };
 
-    const onClick = event => {
+    const onClick = (event) => {
       const index = cardIndex(event.target);
       const card = cardRefs.current[index];
       if (!card) return;
@@ -875,10 +876,10 @@ const MagicBento = ({
       } else activate(index, event.clientX, event.clientY);
     };
 
-    const onKeyDown = event => {
-      if (event.key !== 'Enter' && event.key !== ' ') return;
+    const onKeyDown = (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
       const card = cardRefs.current[cardIndex(event.target)];
-      if (!card || event.target !== card || card.tagName === 'A') return;
+      if (!card || event.target !== card || card.tagName === "A") return;
       event.preventDefault();
       card.click();
     };
@@ -891,7 +892,7 @@ const MagicBento = ({
     const resizeObserver = new ResizeObserver(() => {
       const s = settingsRef.current;
       const width = root.clientWidth;
-      const cell = count => (width - s.gap * (count - 1)) / count;
+      const cell = (count) => (width - s.gap * (count - 1)) / count;
       const next = cell(s.columns) >= MIN_CELL ? s.columns : s.columns >= 2 && cell(2) >= MIN_PAIR ? 2 : 1;
       setCols(next);
       dirty = true;
@@ -902,10 +903,10 @@ const MagicBento = ({
     const enter = () => {
       entered = true;
       let order = 0;
-      cellRefs.current.forEach(cell => {
+      cellRefs.current.forEach((cell) => {
         if (!cell) return;
-        cell.style.setProperty('--mb-delay', `${order++ * STAGGER}ms`);
-        cell.dataset.state = 'in';
+        cell.style.setProperty("--mb-delay", `${order++ * STAGGER}ms`);
+        cell.dataset.state = "in";
       });
       if (dirty) measure();
       introTimer = window.setTimeout(() => {
@@ -914,29 +915,29 @@ const MagicBento = ({
       }, 260);
       settleTimer = window.setTimeout(
         () => {
-          cellRefs.current.forEach(cell => cell?.style.setProperty('--mb-delay', '0ms'));
+          cellRefs.current.forEach((cell) => cell?.style.setProperty("--mb-delay", "0ms"));
         },
-        order * STAGGER + 2600
+        order * STAGGER + 2600,
       );
       wake();
     };
 
     let gate = null;
-    if (playIntro && typeof IntersectionObserver !== 'undefined') {
+    if (playIntro && typeof IntersectionObserver !== "undefined") {
       gate = new IntersectionObserver(
         (entries, observer) => {
-          if (!entries.some(entry => entry.isIntersecting)) return;
+          if (!entries.some((entry) => entry.isIntersecting)) return;
           observer.disconnect();
           enter();
         },
-        { threshold: 0.15 }
+        { threshold: 0.15 },
       );
       gate.observe(root);
     } else {
-      cellRefs.current.forEach(cell => {
+      cellRefs.current.forEach((cell) => {
         if (!cell) return;
-        cell.style.setProperty('--mb-delay', '0ms');
-        cell.dataset.state = 'in';
+        cell.style.setProperty("--mb-delay", "0ms");
+        cell.dataset.state = "in";
       });
       if (motion) {
         for (const animation of root.getAnimations ? root.getAnimations({ subtree: true }) : []) {
@@ -945,8 +946,8 @@ const MagicBento = ({
       }
     }
 
-    const visibility = new IntersectionObserver(entries => {
-      visible = entries.some(entry => entry.isIntersecting);
+    const visibility = new IntersectionObserver((entries) => {
+      visible = entries.some((entry) => entry.isIntersecting);
       if (visible) {
         dirty = true;
         wake();
@@ -954,28 +955,28 @@ const MagicBento = ({
     });
     visibility.observe(root);
 
-    window.addEventListener('pointermove', onPointerMove, { passive: true });
-    window.addEventListener('pointerdown', onPointerDown, { passive: true });
-    window.addEventListener('pointerup', release, { passive: true });
-    window.addEventListener('pointercancel', release, { passive: true });
-    window.addEventListener('scroll', onScroll, { passive: true, capture: true });
-    window.addEventListener('resize', onScroll, { passive: true });
-    document.addEventListener('pointerout', onPointerOut);
-    root.addEventListener('click', onClick);
-    root.addEventListener('keydown', onKeyDown);
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    window.addEventListener("pointerdown", onPointerDown, { passive: true });
+    window.addEventListener("pointerup", release, { passive: true });
+    window.addEventListener("pointercancel", release, { passive: true });
+    window.addEventListener("scroll", onScroll, { passive: true, capture: true });
+    window.addEventListener("resize", onScroll, { passive: true });
+    document.addEventListener("pointerout", onPointerOut);
+    root.addEventListener("click", onClick);
+    root.addEventListener("keydown", onKeyDown);
 
     engineRef.current = {
       sync: () => {
-        cellRefs.current.forEach(cell => {
+        cellRefs.current.forEach((cell) => {
           if (!cell || (!entered && playIntro)) return;
-          if (cell.dataset.state !== 'in') {
-            cell.style.setProperty('--mb-delay', '0ms');
-            cell.dataset.state = 'in';
+          if (cell.dataset.state !== "in") {
+            cell.style.setProperty("--mb-delay", "0ms");
+            cell.dataset.state = "in";
           }
         });
         dirty = true;
         wake();
-      }
+      },
     };
 
     return () => {
@@ -985,15 +986,15 @@ const MagicBento = ({
       gate?.disconnect();
       visibility.disconnect();
       resizeObserver.disconnect();
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerdown', onPointerDown);
-      window.removeEventListener('pointerup', release);
-      window.removeEventListener('pointercancel', release);
-      window.removeEventListener('scroll', onScroll, { capture: true });
-      window.removeEventListener('resize', onScroll);
-      document.removeEventListener('pointerout', onPointerOut);
-      root.removeEventListener('click', onClick);
-      root.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointerup", release);
+      window.removeEventListener("pointercancel", release);
+      window.removeEventListener("scroll", onScroll, { capture: true });
+      window.removeEventListener("resize", onScroll);
+      document.removeEventListener("pointerout", onPointerOut);
+      root.removeEventListener("click", onClick);
+      root.removeEventListener("keydown", onKeyDown);
       engineRef.current = null;
     };
   }, []);
@@ -1015,44 +1016,44 @@ const MagicBento = ({
     <div
       ref={rootRef}
       className={`magic-bento ${className}`.trim()}
-      data-autohide={textAutoHide ? '' : undefined}
-      data-motion={disableAnimations ? undefined : ''}
-      data-intro={intro && !disableAnimations ? '' : undefined}
+      data-autohide={textAutoHide ? "" : undefined}
+      data-motion={disableAnimations ? undefined : ""}
+      data-intro={intro && !disableAnimations ? "" : undefined}
       style={{
         ...vars({
           ...THEMES[palette],
-          '--mb-glow-rgb': glow.join(', '),
-          '--mb-accent-rgb': accent.join(', '),
-          '--mb-accent-ink': inkFor(accent),
-          '--mb-radius': `${corner}px`,
-          '--mb-inner-radius': `${Math.round(clamp(corner * 0.5, 6, 12))}px`,
-          '--mb-pad': `${Math.round(clamp(corner * 0.85, 14, 20))}px`,
-          '--mb-spot-size': `${Math.max(40, spotlightRadius)}px`,
-          '--mb-border-size': `${Math.round(Math.max(40, spotlightRadius) * 0.75)}px`
+          "--mb-glow-rgb": glow.join(", "),
+          "--mb-accent-rgb": accent.join(", "),
+          "--mb-accent-ink": inkFor(accent),
+          "--mb-radius": `${corner}px`,
+          "--mb-inner-radius": `${Math.round(clamp(corner * 0.5, 6, 12))}px`,
+          "--mb-pad": `${Math.round(clamp(corner * 0.85, 14, 20))}px`,
+          "--mb-spot-size": `${Math.max(40, spotlightRadius)}px`,
+          "--mb-border-size": `${Math.round(Math.max(40, spotlightRadius) * 0.75)}px`,
         }),
         gridTemplateColumns: `repeat(${span}, minmax(0, 1fr))`,
         gridAutoRows: span === 1 ? `minmax(${rowHeight}px, auto)` : `${rowHeight}px`,
         gap: `${Math.max(0, gap)}px`,
-        ...style
+        ...style,
       }}
     >
       {items.map((item, index) => {
         const entry = item ?? {};
-        const Visual = typeof entry.visual === 'string' ? VISUALS[entry.visual] : null;
-        const visual = Visual ? <Visual /> : typeof entry.visual === 'string' ? null : entry.visual;
+        const Visual = typeof entry.visual === "string" ? VISUALS[entry.visual] : null;
+        const visual = Visual ? <Visual /> : typeof entry.visual === "string" ? null : entry.visual;
         const clickable = Boolean(entry.href || entry.onClick || onItemClick);
-        const handleClick = event => {
+        const handleClick = (event) => {
           entry.onClick?.(event);
           onItemClick?.(entry, index);
         };
         const cardProps = {
-          ref: element => {
+          ref: (element) => {
             cardRefs.current[index] = element;
           },
-          className: 'magic-bento__card',
-          'data-clickable': clickable ? '' : undefined,
-          'data-image': entry.image ? '' : undefined,
-          onClick: clickable ? handleClick : undefined
+          className: "magic-bento__card",
+          "data-clickable": clickable ? "" : undefined,
+          "data-image": entry.image ? "" : undefined,
+          onClick: clickable ? handleClick : undefined,
         };
         const body = (
           <>
@@ -1061,7 +1062,7 @@ const MagicBento = ({
             {enableSpotlight && <span className="magic-bento__light" />}
             {enableStars && (
               <canvas
-                ref={element => {
+                ref={(element) => {
                   starRefs.current[index] = element;
                 }}
                 className="magic-bento__stars"
@@ -1099,13 +1100,13 @@ const MagicBento = ({
         return (
           <div
             key={entry.id ?? index}
-            ref={element => {
+            ref={(element) => {
               cellRefs.current[index] = element;
             }}
             className="magic-bento__cell"
             style={{
               gridColumn: `span ${Math.min(span, Math.max(1, Math.round(entry.colSpan ?? 1)))}`,
-              gridRow: `span ${Math.max(1, Math.round(entry.rowSpan ?? 1))}`
+              gridRow: `span ${Math.max(1, Math.round(entry.rowSpan ?? 1))}`,
             }}
           >
             {entry.href ? (
@@ -1115,7 +1116,7 @@ const MagicBento = ({
             ) : (
               <div
                 {...cardProps}
-                role={clickable ? 'button' : undefined}
+                role={clickable ? "button" : undefined}
                 tabIndex={clickable ? 0 : undefined}
                 aria-label={clickable ? entry.title : undefined}
               >

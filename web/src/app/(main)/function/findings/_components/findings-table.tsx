@@ -19,8 +19,6 @@ import { useTranslation } from "react-i18next";
 import { CopyButton } from "@/components/copy-button";
 import { EvidenceGradeBadge } from "@/components/evidence-grade-badge";
 import { FindingCaseMembers, FindingSeverityCounts } from "@/components/finding-case-list";
-import { harmLabel, triageLabel, triageTone } from "@/lib/finding-triage";
-import { toneClasses } from "@/lib/status";
 import { Markdown } from "@/components/markdown";
 import { StatusBadge } from "@/components/status-badge";
 import {
@@ -43,7 +41,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { type UITranslate, useUITranslation } from "@/i18n/use-ui-translation";
-import { statusMeta } from "@/lib/status";
+import { harmLabel, triageLabel, triageTone } from "@/lib/finding-triage";
+import { statusMeta, toneClasses } from "@/lib/status";
 import type {
   ActiveFindingRetest,
   Finding,

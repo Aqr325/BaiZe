@@ -20,15 +20,17 @@ import { toast } from "sonner";
 
 import { ApprovalDetail } from "@/components/approval-records";
 import { Markdown } from "@/components/markdown";
+import ThoughtLineImpl from "@/components/thought-line";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { localizedError } from "@/i18n/errors";
 import { useLiveTranslation } from "@/i18n/use-live-translation";
-import ThoughtLineImpl from "@/components/thought-line";
+
 // ThoughtLine 为纯 JS，TS 把无默认值 props(renderLabel/elapsed/onSettle/style)推断为必填，
 // 运行时均为可选。转宽松类型避免调用点类型误报。
 const ThoughtLine = ThoughtLineImpl as unknown as React.FC<Record<string, unknown>>;
+
 import { api } from "@/lib/api";
 import { formatToolDetail, type ToolDetailPart, toolInputText } from "@/lib/execution-display";
 import type { Activity, InterceptPending } from "@/lib/types";

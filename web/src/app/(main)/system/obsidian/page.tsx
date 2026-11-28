@@ -1,14 +1,7 @@
 "use client";
 import * as React from "react";
 
-import {
-  BookOpenIcon,
-  CheckCircle2Icon,
-  FileTextIcon,
-  FolderSyncIcon,
-  InfoIcon,
-  RefreshCwIcon,
-} from "lucide-react";
+import { BookOpenIcon, CheckCircle2Icon, FileTextIcon, FolderSyncIcon, InfoIcon, RefreshCwIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -76,10 +69,30 @@ export default function ObsidianPage() {
   };
 
   const tiles: { key: string; label: string; value: string | number; icon: React.ReactNode }[] = [
-    { key: "scanned", label: ui("obsidian.scanned"), value: result?.scanned ?? 0, icon: <FileTextIcon className="size-4" /> },
-    { key: "imported", label: ui("obsidian.imported"), value: result?.imported ?? 0, icon: <CheckCircle2Icon className="size-4" /> },
-    { key: "updated", label: ui("obsidian.updated"), value: result?.updated ?? 0, icon: <RefreshCwIcon className="size-4" /> },
-    { key: "skipped", label: ui("obsidian.skipped"), value: result?.skipped ?? 0, icon: <FolderSyncIcon className="size-4" /> },
+    {
+      key: "scanned",
+      label: ui("obsidian.scanned"),
+      value: result?.scanned ?? 0,
+      icon: <FileTextIcon className="size-4" />,
+    },
+    {
+      key: "imported",
+      label: ui("obsidian.imported"),
+      value: result?.imported ?? 0,
+      icon: <CheckCircle2Icon className="size-4" />,
+    },
+    {
+      key: "updated",
+      label: ui("obsidian.updated"),
+      value: result?.updated ?? 0,
+      icon: <RefreshCwIcon className="size-4" />,
+    },
+    {
+      key: "skipped",
+      label: ui("obsidian.skipped"),
+      value: result?.skipped ?? 0,
+      icon: <FolderSyncIcon className="size-4" />,
+    },
     { key: "failed", label: ui("obsidian.failed"), value: result?.failed ?? 0, icon: <InfoIcon className="size-4" /> },
   ];
 
@@ -178,7 +191,11 @@ export default function ObsidianPage() {
               <CardContent className="pt-4">
                 <div className="mb-2 text-sm font-medium">{ui("obsidian.errors")}</div>
                 <ul className="text-muted-foreground list-inside list-disc text-xs">
-                  {result.errors.map((err, i) => <li key={i} className="truncate">{err}</li>)}
+                  {result.errors.map((err, i) => (
+                    <li key={i} className="truncate">
+                      {err}
+                    </li>
+                  ))}
                 </ul>
               </CardContent>
             </Card>

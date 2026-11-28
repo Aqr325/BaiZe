@@ -123,7 +123,8 @@ export function truncateResponse(response: RepeaterSendResponse, limit = MAX_RES
 // Replay drafts often carry credentials. Redact sensitive header values before
 // anything is persisted (serialization works on a copy, so live state is intact).
 // The header names below cover Authorization/Cookie plus common token headers.
-const SENSITIVE_HEADER = /^(?:authorization|proxy-authorization|cookie|set-cookie|x-[\w-]*token[\w-]*|x-api-key|x-csrf-token)$/i;
+const SENSITIVE_HEADER =
+  /^(?:authorization|proxy-authorization|cookie|set-cookie|x-[\w-]*token[\w-]*|x-api-key|x-csrf-token)$/i;
 const REDACTED = "[REDACTED]";
 
 function redactHeaderLine(line: string): string {
@@ -153,14 +154,12 @@ export function serializeWorkspace(workspace: RepeaterWorkspace, maxBytes = MAX_
       response: tab.response
         ? { ...truncateResponse(tab.response), headers: redactResponseHeaders(tab.response.headers) }
         : null,
-      history: tab.history
-        .slice(0, MAX_HISTORY)
-        .map((entry) => ({
-          ...entry,
-          headersText: redactHeadersText(entry.headersText),
-          rawRequest: entry.rawRequest === undefined ? undefined : redactHeadersText(entry.rawRequest),
-          response: { ...truncateResponse(entry.response), headers: redactResponseHeaders(entry.response.headers) },
-        })),
+      history: tab.history.slice(0, MAX_HISTORY).map((entry) => ({
+        ...entry,
+        headersText: redactHeadersText(entry.headersText),
+        rawRequest: entry.rawRequest === undefined ? undefined : redactHeadersText(entry.rawRequest),
+        response: { ...truncateResponse(entry.response), headers: redactResponseHeaders(entry.response.headers) },
+      })),
     })),
   };
   let json = JSON.stringify(saved);

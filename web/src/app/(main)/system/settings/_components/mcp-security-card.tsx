@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { useTranslation } from "react-i18next";
+
 import { CheckIcon, RefreshCwIcon, ShieldAlertIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -94,7 +95,9 @@ export function McpSecurityCard() {
       <CardContent className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2">
           <div className="flex flex-col gap-0.5">
-            <Label htmlFor="mcp-pin-enforce" className="text-sm">{t("mcpSecurity.enforceLabel")}</Label>
+            <Label htmlFor="mcp-pin-enforce" className="text-sm">
+              {t("mcpSecurity.enforceLabel")}
+            </Label>
             <span className="text-xs text-muted-foreground">{t("mcpSecurity.enforceHint")}</span>
           </div>
           <Switch id="mcp-pin-enforce" checked={enforce} onCheckedChange={(v) => void toggleEnforce(v)} />
@@ -110,15 +113,22 @@ export function McpSecurityCard() {
               {quarantine.map((q) => {
                 const key = `${q.server_name}:${q.tool_name}`;
                 return (
-                  <div key={key} className="flex flex-col gap-1.5 px-3 py-2 text-sm sm:flex-row sm:items-center sm:gap-3">
-                    <Badge variant="destructive" className="w-fit shrink-0">{t("mcpSecurity.quarantined")}</Badge>
+                  <div
+                    key={key}
+                    className="flex flex-col gap-1.5 px-3 py-2 text-sm sm:flex-row sm:items-center sm:gap-3"
+                  >
+                    <Badge variant="destructive" className="w-fit shrink-0">
+                      {t("mcpSecurity.quarantined")}
+                    </Badge>
                     <span className="min-w-0 truncate font-mono text-xs">
                       {q.server_name} / {q.tool_name}
                     </span>
                     <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
                       {q.old_hash.slice(0, 12)} → {q.new_hash.slice(0, 12)}
                     </span>
-                    <span className="min-w-0 flex-1 break-words text-xs text-muted-foreground">{fmtTime(q.detected_at)}</span>
+                    <span className="min-w-0 flex-1 break-words text-xs text-muted-foreground">
+                      {fmtTime(q.detected_at)}
+                    </span>
                     <Button
                       size="sm"
                       variant="outline"

@@ -7,8 +7,8 @@ import { ArrowDownIcon, ArrowUpIcon, ArrowUpRightIcon, ChevronRightIcon, SearchI
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { FindingCaseList } from "@/components/finding-case-list";
 import { EvidenceGradeBadge } from "@/components/evidence-grade-badge";
+import { FindingCaseList } from "@/components/finding-case-list";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

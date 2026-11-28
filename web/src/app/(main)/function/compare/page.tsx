@@ -6,13 +6,7 @@ import { ArrowRightLeftIcon, Loader2Icon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { type UITranslate, useUITranslation } from "@/i18n/use-ui-translation";
 import { api } from "@/lib/api";
 import type { Task, TaskCompareFinding, TaskCompareResult } from "@/lib/types";
@@ -105,9 +99,7 @@ export default function TaskComparePage() {
     <div className="flex flex-col gap-4 p-6">
       <div>
         <h1 className="text-xl font-bold">{ui("screen.compare.title")}</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          {ui("screen.compare.subtitle")}
-        </p>
+        <p className="text-muted-foreground mt-1 text-sm">{ui("screen.compare.subtitle")}</p>
       </div>
 
       <Card className="flex flex-wrap items-end gap-3 p-4">
@@ -148,29 +140,24 @@ export default function TaskComparePage() {
         </Button>
       </Card>
 
-      {error ? <div className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
+      {error ? (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>
+      ) : null}
 
       {result ? (
         <>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            {(
-              [
-                { key: "fixed", tone: "fixed" as const, list: result.fixed, color: "text-emerald-600" },
-                { key: "new", tone: "new" as const, list: result.new, color: "text-red-600" },
-                { key: "persistent", tone: "persistent" as const, list: result.persistent, color: "text-amber-600" },
-              ]
-            ).map(({ key, tone, list, color }) => (
+            {[
+              { key: "fixed", tone: "fixed" as const, list: result.fixed, color: "text-emerald-600" },
+              { key: "new", tone: "new" as const, list: result.new, color: "text-red-600" },
+              { key: "persistent", tone: "persistent" as const, list: result.persistent, color: "text-amber-600" },
+            ].map(({ key, tone, list, color }) => (
               <Card key={key} className="p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-sm font-semibold">{ui(`screen.compare.${key}`)}</h2>
                   <span className={`text-lg font-bold tabular-nums ${color}`}>{list.length}</span>
                 </div>
-                <FindingList
-                  items={list}
-                  ui={ui}
-                  tone={tone}
-                  emptyText={ui(`screen.compare.empty.${key}`)}
-                />
+                <FindingList items={list} ui={ui} tone={tone} emptyText={ui(`screen.compare.empty.${key}`)} />
               </Card>
             ))}
           </div>

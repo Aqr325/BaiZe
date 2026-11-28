@@ -31,8 +31,8 @@ import type { EgressReport, LLMProfile, ProxyPoolEntry, Settings, WorkerPool } f
 
 import { useEgressIp } from "../../_components/egress-ip-banner";
 import { BasicAuthCard } from "./_components/basic-auth-card";
-import { McpServerCard } from "./_components/mcp-server-card";
 import { McpSecurityCard } from "./_components/mcp-security-card";
+import { McpServerCard } from "./_components/mcp-server-card";
 import { UpdateCard } from "./_components/update-card";
 
 export default function SystemSettingsPage() {

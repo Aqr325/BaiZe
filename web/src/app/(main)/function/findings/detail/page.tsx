@@ -9,12 +9,12 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CopyButton } from "@/components/copy-button";
+import { EvidenceGradeBadge } from "@/components/evidence-grade-badge";
 import { FindingAutoChat } from "@/components/finding-auto-chat";
 import { FindingReproductionPanel } from "@/components/finding-reproduction-panel";
 import { FindingRetestPanel } from "@/components/finding-retest-panel";
 import { FindingTrafficPanel } from "@/components/finding-traffic-panel";
 import { Markdown } from "@/components/markdown";
-import { EvidenceGradeBadge } from "@/components/evidence-grade-badge";
 import { StatusBadge } from "@/components/status-badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -275,7 +275,9 @@ function FindingDetailInner() {
                             {finding.trigger_point ? (
                               <div>
                                 <dt className="text-muted-foreground">触发点</dt>
-                                <dd className="mt-0.5 whitespace-pre-wrap font-mono text-xs">{finding.trigger_point}</dd>
+                                <dd className="mt-0.5 whitespace-pre-wrap font-mono text-xs">
+                                  {finding.trigger_point}
+                                </dd>
                               </div>
                             ) : null}
                             {finding.data_flow ? (
@@ -287,7 +289,9 @@ function FindingDetailInner() {
                             {finding.repro_conditions ? (
                               <div>
                                 <dt className="text-muted-foreground">复现条件</dt>
-                                <dd className="mt-0.5 whitespace-pre-wrap font-mono text-xs">{finding.repro_conditions}</dd>
+                                <dd className="mt-0.5 whitespace-pre-wrap font-mono text-xs">
+                                  {finding.repro_conditions}
+                                </dd>
                               </div>
                             ) : null}
                             {finding.impact ? (
@@ -298,7 +302,9 @@ function FindingDetailInner() {
                             ) : null}
                           </dl>
                         ) : (
-                          <p className="text-sm text-muted-foreground">该发现未提供结构化证据链（触发点/数据流/复现条件/影响面），按「待验证线索」对待。</p>
+                          <p className="text-sm text-muted-foreground">
+                            该发现未提供结构化证据链（触发点/数据流/复现条件/影响面），按「待验证线索」对待。
+                          </p>
                         )}
                       </CardContent>
                     </Card>

@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
 
+import OverviewMotion from "@/components/overview-motion";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,7 +47,6 @@ import type {
   UsageStats,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import OverviewMotion from "@/components/overview-motion";
 
 // ── chart constants ───────────────────────────────────────────────────────────
 
@@ -1338,13 +1338,7 @@ export default function DashboardPage() {
 
       {/* 动效总览：MagicBento 系统状态 + AnimatedList 最近动态 */}
       <div className="mt-4">
-        <OverviewMotion
-          tasks={tasks}
-          findings={findings}
-          agents={agents}
-          mcpServers={mcpServers}
-          activity={activity}
-        />
+        <OverviewMotion tasks={tasks} findings={findings} agents={agents} mcpServers={mcpServers} activity={activity} />
       </div>
     </div>
   );

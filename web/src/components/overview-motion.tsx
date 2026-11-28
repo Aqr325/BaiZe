@@ -1,8 +1,7 @@
-'use client';
+"use client";
 
 import React from "react";
-import { useTheme } from "next-themes";
-import { HugeiconsIcon } from "@hugeicons/react";
+
 import {
   CodeIcon,
   File01Icon,
@@ -12,9 +11,13 @@ import {
   SparklesIcon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
-import MagicBentoImpl from "./magic-bento";
-import AnimatedListImpl from "./animated-list";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { useTheme } from "next-themes";
+
 import type { Activity, Agent, Finding, MCPServer, Task } from "@/lib/types";
+
+import AnimatedListImpl from "./animated-list";
+import MagicBentoImpl from "./magic-bento";
 
 // 两个动效组件为纯 JS，TS 把无默认值 props(style/glowColor/onItemClick 等)
 // 推断成必填，但运行时均为可选。这里转宽松类型，避免调用点类型误报。
@@ -144,7 +147,15 @@ export default function OverviewMotion({ tasks, findings, agents, mcpServers, ac
       {/* MagicBento 系统总览 */}
       <div>
         <div className="mb-2 text-[10px] font-medium text-muted-foreground">系统状态总览</div>
-        <MagicBento items={bentoItems} columns={4} rowHeight={150} theme={theme} enableStars={false} textAutoHide={false} radius={18} />
+        <MagicBento
+          items={bentoItems}
+          columns={4}
+          rowHeight={150}
+          theme={theme}
+          enableStars={false}
+          textAutoHide={false}
+          radius={18}
+        />
       </div>
 
       {/* AnimatedList 最近动态 */}

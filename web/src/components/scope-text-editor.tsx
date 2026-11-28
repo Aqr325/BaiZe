@@ -1,10 +1,10 @@
 "use client";
-import { translateFixedUIText } from "@/i18n/fixed-ui-text";
 import * as React from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
+import { translateFixedUIText } from "@/i18n/fixed-ui-text";
 import { type UITranslate, useUITranslation } from "@/i18n/use-ui-translation";
 import type { ParsedCompanyScopeText } from "@/lib/company-scope";
 import type { CompanyScopeKind } from "@/lib/types";

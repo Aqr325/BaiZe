@@ -1,11 +1,13 @@
 "use client";
 import * as React from "react";
-import Link from "next/link";
-import { ShieldAlertIcon, FlameIcon } from "lucide-react";
 
+import Link from "next/link";
+
+import { FlameIcon, ShieldAlertIcon } from "lucide-react";
+
+import { EvidenceGradeBadge } from "@/components/evidence-grade-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { EvidenceGradeBadge } from "@/components/evidence-grade-badge";
 import { api } from "@/lib/api";
 import type { Finding } from "@/lib/types";
 
@@ -96,7 +98,8 @@ export function ReviewQueueCard() {
                   {headline.name || headline.vulnclass || headline.summary}
                 </Link>
                 <span className="mt-1 block text-muted-foreground">
-                  {harmLabel(headline.harm_primitive)} · 资产 {headline.asset_tier ? `Tier ${headline.asset_tier.toUpperCase()}` : "Tier C"}
+                  {harmLabel(headline.harm_primitive)} · 资产{" "}
+                  {headline.asset_tier ? `Tier ${headline.asset_tier.toUpperCase()}` : "Tier C"}
                 </span>
               </div>
             )}

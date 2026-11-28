@@ -18,9 +18,9 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
+import { api } from "@/lib/api";
 import type { NavMainItem } from "@/navigation/sidebar/sidebar-items";
 import { getSidebarItems } from "@/navigation/sidebar/sidebar-items";
-import { api } from "@/lib/api";
 
 type SearchItem = {
   id: string;
@@ -176,9 +176,7 @@ export function SearchDialog() {
         <Command>
           <CommandInput placeholder={t("search.placeholder")} value={query} onValueChange={setQuery} />
           <CommandList>
-            <CommandEmpty>
-              {dataLoading ? t("search.searching") : t("search.empty")}
-            </CommandEmpty>
+            <CommandEmpty>{dataLoading ? t("search.searching") : t("search.empty")}</CommandEmpty>
             {renderGroups(searchItems)}
             {dataItems.length > 0 ? renderGroups(dataItems) : null}
           </CommandList>

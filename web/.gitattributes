@@ -1,0 +1,12 @@
+# 前端源码/配置统一 LF 检出（覆盖 core.autocrlf=true 的 CRLF 转换）
+# 根因：biome.json 期望 lineEnding=lf，但 autocrlf 检出为 CRLF，导致 format 债
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.js   text eol=lf
+*.jsx  text eol=lf
+*.mjs  text eol=lf
+*.cjs  text eol=lf
+*.json text eol=lf
+*.css  text eol=lf
+*.md   text eol=lf
+*.html text eol=lf

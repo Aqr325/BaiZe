@@ -202,7 +202,10 @@ export const overviewMessages = {
   "overview.requestCount_one": ["{{count}} 次请求", "{{count}} request"],
   "overview.requestCount_other": ["{{count}} 次请求", "{{count}} requests"],
   // Task overview — Fence allow-list / out-of-bounds authorization panel.
-  "overview.fenceMatchTitle": ["Fence 规则表面：选非空即结构化规则（可机器判定）", "Fence surface: a non-empty value is a machine-checkable structured rule"],
+  "overview.fenceMatchTitle": [
+    "Fence 规则表面：选非空即结构化规则（可机器判定）",
+    "Fence surface: a non-empty value is a machine-checkable structured rule",
+  ],
   "overview.fenceMatchTitleShort": ["Fence 规则表面", "Fence rule surface"],
   "overview.fenceSurfaceFree": ["表面: 自由文本", "Surface: free text"],
   "overview.fenceSurfaceHost": ["表面: host", "Surface: host"],
@@ -212,13 +215,25 @@ export const overviewMessages = {
   "overview.fenceSurfacePort": ["表面: port", "Surface: port"],
   "overview.fenceSurfaceAll": ["表面: all", "Surface: all"],
   "overview.fencePatternPlaceholder": ["glob，如 *.example.com", "glob, e.g. *.example.com"],
-  "overview.fenceRuleNeedsPattern": ["结构化规则（match）必须同时提供 pattern", "A structured rule (match) also requires a pattern"],
-  "overview.fenceEnabledTitle": ["Fence 允许清单已启用：清单内自动放行，清单外（越界）需人工越界授权", "Fence allow-list enabled: entries on the list pass automatically; out-of-bounds calls need manual authorization"],
-  "overview.fenceDisabledTitle": ["Fence 未启用：无结构化允许规则，回落「deny 清单→全量人工审批」旧行为", "Fence disabled: no structured allow rules, falling back to deny-list and full manual approval"],
+  "overview.fenceRuleNeedsPattern": [
+    "结构化规则（match）必须同时提供 pattern",
+    "A structured rule (match) also requires a pattern",
+  ],
+  "overview.fenceEnabledTitle": [
+    "Fence 允许清单已启用：清单内自动放行，清单外（越界）需人工越界授权",
+    "Fence allow-list enabled: entries on the list pass automatically; out-of-bounds calls need manual authorization",
+  ],
+  "overview.fenceDisabledTitle": [
+    "Fence 未启用：无结构化允许规则，回落「deny 清单→全量人工审批」旧行为",
+    "Fence disabled: no structured allow rules, falling back to deny-list and full manual approval",
+  ],
   "overview.fenceEnabled": ["Fence 允许清单已启用", "Fence allow-list enabled"],
   "overview.fenceDisabled": ["Fence 未启用（回落 deny 清单）", "Fence disabled (fallback to deny-list)"],
   "overview.fenceAuthzTitle": ["Fence 越界授权", "Fence out-of-bounds authorization"],
-  "overview.fenceAuthzOn": ["允许清单外的调用经人工授权后放行（按表面记忆，相同越界目标不再重复询问）", "Out-of-list calls pass after manual authorization (remembered by surface; the same target is not asked twice)"],
+  "overview.fenceAuthzOn": [
+    "允许清单外的调用经人工授权后放行（按表面记忆，相同越界目标不再重复询问）",
+    "Out-of-list calls pass after manual authorization (remembered by surface; the same target is not asked twice)",
+  ],
   "overview.fenceAuthzOff": ["未启用：无结构化允许规则", "Disabled: no structured allow rules"],
   "overview.fenceAuthzGranted": ["已授权", "Authorized"],
   "overview.fenceAuthzEmpty": ["暂无越界授权记录", "No out-of-bounds authorizations yet"],
