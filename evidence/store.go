@@ -13,6 +13,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -113,6 +114,12 @@ func (s *Store) writeBody(r io.Reader, expectedLength int64, expectedHash string
 		return "", err
 	}
 	defer d.Close()
+	// Windows 上 FlushFileBuffers 不支持目录句柄，os.File.Sync() 对目录返回
+	// "Access is denied"；目录项落盘由 NTFS 自身保证，跳过即可。Unix 上保留
+	// fsync(dir) 确保 rename 的目录项持久化。
+	if runtime.GOOS == "windows" {
+		return hash, nil
+	}
 	return hash, d.Sync()
 }
 

@@ -226,7 +226,19 @@ func TestDeepenFindingCreatesAuditedIntentAndRevivesTask(t *testing.T) {
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
-	defer m.Close()
+	// Use t.Cleanup (not defer) so the setting restore below — registered later —
+	// runs BEFORE m.Close() under LIFO ordering; SetConcurrency needs a live pg.
+	t.Cleanup(func() { _ = m.Close() })
+
+	// This test asserts immediate (non-queued) revive. That only holds with
+	// concurrency admission disabled; the live DB may have it enabled with a
+	// full limit, which legitimately queues the task. Pin the setting and
+	// restore it so the assertion is environment-independent.
+	oldEnabled, oldLimit := m.ConcurrencyLimit()
+	if err := m.SetConcurrency(false, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.SetConcurrency(oldEnabled, oldLimit) })
 
 	task, err := m.CreateTask("deepen finding", "goal", nil, 0, 0)
 	if err != nil {
