@@ -241,7 +241,7 @@ function InterceptCard({ step, getDetail }: { step: Activity; getDetail: (seq: n
   const inputStr = detail?.input ? JSON.stringify(detail.input).slice(0, 200) : null;
 
   const row = pending
-    ? { ...pending, status: decided || pending.status, conv_title: "", conv_agent_key: "", rule_name: "" }
+    ? { ...pending, status: decided ?? pending.status, conv_title: "", conv_agent_key: "", rule_name: "" }
     : null;
 
   return (

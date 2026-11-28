@@ -89,7 +89,7 @@ export default function ThoughtLine({
         if (glyphEl) {
           const lead = animate(glyphEl, { opacity: trough }, { duration: 0.2, ease: EASE_OUT });
           running.push(lead);
-          lead.then(() => {
+          void lead.then(() => {
             if (cancelled) return;
             running.push(loop(glyphEl, 0));
             if (!sheen) running.push(loop(breathEl, 0.14));

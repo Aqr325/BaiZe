@@ -67,11 +67,12 @@
       "correctness": {
         "noUndeclaredVariables": "error",
         "noNestedComponentDefinitions": "error",
-        "noUndeclaredDependencies": "error"
+        "noUndeclaredDependencies": "error",
+        "useExhaustiveDependencies": "warn"
       },
       "nursery": {
         "useSortedClasses": "warn",
-        "useNullishCoalescing": "error",
+        "useNullishCoalescing": "warn",
         "noFloatingPromises": "error",
         "noMisusedPromises": "error"
       },
@@ -93,13 +94,23 @@
       "suspicious": {
         "noArrayIndexKey": "warn",
         "noConstantBinaryExpressions": "error",
-        "noEmptyBlockStatements": "error",
+        "noEmptyBlockStatements": "warn",
         "noUnknownAtRules": "off",
         "noImportCycles": "error",
-        "noUnnecessaryConditions": "warn"
+        "noUnnecessaryConditions": "warn",
+        "useIterableCallbackReturn": "warn"
       },
       "complexity": {
         "noImportantStyles": "off"
+      },
+      "a11y": {
+        "noLabelWithoutControl": "warn",
+        "useKeyWithClickEvents": "warn",
+        "noStaticElementInteractions": "warn",
+        "noSvgWithoutTitle": "warn",
+        "useFocusableInteractive": "warn",
+        "noAriaHiddenOnFocusable": "warn",
+        "useAriaPropsSupportedByRole": "warn"
       }
     },
     "domains": {

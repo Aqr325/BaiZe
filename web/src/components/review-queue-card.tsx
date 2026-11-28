@@ -34,7 +34,7 @@ export function ReviewQueueCard() {
 
   React.useEffect(() => {
     let alive = true;
-    (async () => {
+    void (async () => {
       try {
         const [sc, fp] = await Promise.all([
           api.findingsPage({ page: 1, pageSize: 8, evidenceGrade: "self_claim" }),

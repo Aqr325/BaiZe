@@ -241,12 +241,12 @@ function JudgeCard() {
   }, [liveUI]);
 
   React.useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   // 开启后(含初次加载把开关读为 true 时)拉取审批用量统计。
   React.useEffect(() => {
-    if (cfg.enabled) loadUsage();
+    if (cfg.enabled) void loadUsage();
   }, [cfg.enabled, loadUsage]);
 
   function patch(p: Partial<JudgeConfig>) {
@@ -628,8 +628,8 @@ export default function InterceptPage() {
   }, [liveUI]);
 
   React.useEffect(() => {
-    load();
-    loadScope();
+    void load();
+    void loadScope();
   }, [load, loadScope]);
 
   React.useEffect(() => {
@@ -706,7 +706,7 @@ export default function InterceptPage() {
         toast.success(ui("screen.f89afbf2a0241b"));
       }
       setOpen(false);
-      load();
+      await load();
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -718,7 +718,7 @@ export default function InterceptPage() {
     try {
       await api.deleteInterceptRule(id);
       toast.success(ui("screen.04e366e339819a"));
-      load();
+      await load();
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -727,7 +727,7 @@ export default function InterceptPage() {
   async function handleToggle(rule: InterceptRule) {
     try {
       await api.toggleInterceptRule(rule.id, !rule.enabled);
-      load();
+      await load();
     } catch (e) {
       toast.error((e as Error).message);
     }
