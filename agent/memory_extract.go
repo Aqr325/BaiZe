@@ -65,10 +65,10 @@ const memoryExtractSystemPrompt = `你是一个长期记忆抽取器。阅读下
 //     避免把真实踩坑经验全部误杀。
 var memoryCredentialPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\b(?:api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token|bearer[_-]?token|password|passwd|private[_-]?key|client[_-]?secret)\b\s*[:=]\s*["']?[A-Za-z0-9_\-/+.]{8,}`),
-	regexp.MustCompile(`(?i)\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`), // AWS access key id
-	regexp.MustCompile(`(?i)\bgh[pousr]_[A-Za-z0-9]{30,}\b`),  // GitHub token
-	regexp.MustCompile(`(?i)\bsk-[A-Za-z0-9]{20,}\b`),         // OpenAI-style key
-	regexp.MustCompile(`(?i)\beyJ[A-Za-z0-9_\-]{1,}\.[A-Za-z0-9_\-]{1,}\.[A-Za-z0-9_\-]{1,}\b`), // JWT（eyJ... 三段 base64url）
+	regexp.MustCompile(`(?i)\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`),                                              // AWS access key id
+	regexp.MustCompile(`(?i)\bgh[pousr]_[A-Za-z0-9]{30,}\b`),                                             // GitHub token
+	regexp.MustCompile(`(?i)\bsk-[A-Za-z0-9]{20,}\b`),                                                    // OpenAI-style key
+	regexp.MustCompile(`(?i)\beyJ[A-Za-z0-9_\-]{1,}\.[A-Za-z0-9_\-]{1,}\.[A-Za-z0-9_\-]{1,}\b`),          // JWT（eyJ... 三段 base64url）
 	regexp.MustCompile(`(?i)\bbearer\s+eyJ[A-Za-z0-9_\-]{1,}\.[A-Za-z0-9_\-]{1,}\.[A-Za-z0-9_\-]{1,}\b`), // Bearer JWT
 	regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`),
 }

@@ -21,11 +21,11 @@ type ChildConfig struct {
 // bounded receipt fields hermes' run_child_lifecycle returns (status, summary,
 // error, api_calls, duration_seconds) plus a structured payload.
 type ChildOutcome struct {
-	Status              string         // "completed" | "interrupted" | "error"
-	Summary             string
-	Error               string
-	StructuredPayload   map[string]any
-	UsageMetadata       map[string]any
+	Status               string // "completed" | "interrupted" | "error"
+	Summary              string
+	Error                string
+	StructuredPayload    map[string]any
+	UsageMetadata        map[string]any
 	ToolExecutionSummary map[string]any
 }
 

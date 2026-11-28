@@ -18,7 +18,7 @@ func TestGlobMatch(t *testing.T) {
 		want       bool
 	}{
 		{"*.example.com", "api.example.com", true},
-		{"*.example.com", "example.com", true},   // apex 通配特例
+		{"*.example.com", "example.com", true}, // apex 通配特例
 		{"*.example.com", "evil.org", false},
 		{"*.example.com", "sub.api.example.com", true},
 		{"curl*", "curl https://x.com", true},

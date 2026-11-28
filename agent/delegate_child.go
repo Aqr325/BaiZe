@@ -111,24 +111,24 @@ func RunSubagentTurn(ctx context.Context, cfg delegation.ChildConfig, emit deleg
 		proxyAddr, caCert = ChildProxy()
 	}
 	opts := agentcore.Options{
-		Provider:       prov,
-		SystemPrompt:   system,
+		Provider:        prov,
+		SystemPrompt:    system,
 		DynamicBoundary: boundary,
-		Tools:          tools,
-		DeferredTools:  def.Deferred,
-		UnlockSet:      def.Unlock,
-		PermissionMode: permission.ModeBypass,
-		EnableWebFetch: true,
-		WebFetchProxy:  proxyAddr,
-		WebFetchCACert: caCert,
-		BashEnv:        proxyEnv(proxyAddr, caCert),
-		WorkingDir:     subDir,
-		MaxTurns:       defaultSubagentTurns,
-		MaxDuration:    defaultSubagentDuration,
-		Compaction:     compactionConfig(0),
-		Todos:          actool.NewTodoStore(),
-		ToolOutputDir:  filepath.Join(subDir, "cmd-output"),
-		Settlement:     wrapupSettlement("subagent", nil),
+		Tools:           tools,
+		DeferredTools:   def.Deferred,
+		UnlockSet:       def.Unlock,
+		PermissionMode:  permission.ModeBypass,
+		EnableWebFetch:  true,
+		WebFetchProxy:   proxyAddr,
+		WebFetchCACert:  caCert,
+		BashEnv:         proxyEnv(proxyAddr, caCert),
+		WorkingDir:      subDir,
+		MaxTurns:        defaultSubagentTurns,
+		MaxDuration:     defaultSubagentDuration,
+		Compaction:      compactionConfig(0),
+		Todos:           actool.NewTodoStore(),
+		ToolOutputDir:   filepath.Join(subDir, "cmd-output"),
+		Settlement:      wrapupSettlement("subagent", nil),
 	}
 	ctx = attachSideCapture(ctx, &opts)
 	s := newAgentSession(opts)
@@ -149,8 +149,8 @@ func RunSubagentTurn(ctx context.Context, cfg delegation.ChildConfig, emit deleg
 	})
 
 	out := delegation.ChildOutcome{
-		Status:    "completed",
-		Summary:   text,
+		Status:        "completed",
+		Summary:       text,
 		UsageMetadata: map[string]any{"api_calls": 1},
 	}
 	if reason == harness.ReasonAbortedStreaming || reason == harness.ReasonAbortedTools {

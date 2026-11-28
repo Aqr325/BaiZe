@@ -46,9 +46,9 @@ type skillProvenance struct {
 
 // skillProvenanceManifest is the on-disk manifest format.
 type skillProvenanceManifest struct {
-	Version   int                         `json:"version"`
-	Generated string                      `json:"generated"`
-	Skills    map[string]skillProvenance  `json:"skills"`
+	Version   int                        `json:"version"`
+	Generated string                     `json:"generated"`
+	Skills    map[string]skillProvenance `json:"skills"`
 }
 
 func skillProvenanceManifestPath(skillDir string) string {

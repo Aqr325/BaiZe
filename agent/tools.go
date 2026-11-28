@@ -1263,12 +1263,12 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 			"items": obj(map[string]any{"traffic_id": str("traffic_search 返回的真实流量 ID"), "role": map[string]any{"type": "string", "enum": []string{"baseline", "proof", "verification", "supporting"}}, "note": str("该流量如何支持漏洞结论")}, "traffic_id")},
 	}, "vulnclass", "severity", "summary"), func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
 		var a struct {
-			VulnClass, Name, Severity, Summary, Evidence string
+			VulnClass, Name, Severity, Summary, Evidence    string
 			TriggerPoint, DataFlow, ReproConditions, Impact string
-			IntentID                                     json.RawMessage   `json:"intent_id"`
-			AssetIDs                                     []json.RawMessage `json:"asset_ids"`
-			TrafficRefs                                  []db.TrafficRef   `json:"traffic_refs"`
-			EvidenceHintID                               json.RawMessage   `json:"evidence_hint_id"`
+			IntentID                                        json.RawMessage   `json:"intent_id"`
+			AssetIDs                                        []json.RawMessage `json:"asset_ids"`
+			TrafficRefs                                     []db.TrafficRef   `json:"traffic_refs"`
+			EvidenceHintID                                  json.RawMessage   `json:"evidence_hint_id"`
 		}
 		if err := json.Unmarshal(in, &a); err != nil {
 			return actool.Errorf(err.Error()), nil

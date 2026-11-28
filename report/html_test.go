@@ -57,7 +57,10 @@ func TestHTMLReportEscapes(t *testing.T) {
 }
 
 func TestRemediationsMapping(t *testing.T) {
-	cases := []struct{ class, name string; n int }{
+	cases := []struct {
+		class, name string
+		n           int
+	}{
 		{"sqli", "注入", 3}, {"xss", "存储型跨站", 3}, {"ssrf", "SSRF", 3},
 		{"弱口令", "admin/admin", 3}, {"完全未知类型", "随便什么", 2},
 	}

@@ -23,28 +23,28 @@ type DBFinding struct {
 	ReportEvidenceVersion int64
 	TrafficBindings       []FindingTrafficBinding // populated only for export
 
-	ID                   int64
-	TaskID               *int64
-	NodeID               *int64
-	VulnClass            string
-	Name                 string // 漏洞名称(可读标题);为空时前端回退展示 VulnClass
-	Severity             string
-	Summary              string
-	Evidence             string
+	ID        int64
+	TaskID    *int64
+	NodeID    *int64
+	VulnClass string
+	Name      string // 漏洞名称(可读标题);为空时前端回退展示 VulnClass
+	Severity  string
+	Summary   string
+	Evidence  string
 	// 证据链四要素(反幻觉): 触发点/数据流/复现条件/影响面 — 模型上报时结构化填写,
 	// 缺任一要素的发现应视为「待验证线索」而非已确认漏洞(见 skills/evidence-chain)。
-	TriggerPoint     string
-	DataFlow         string
-	ReproConditions  string
-	Impact           string
-	Worker           string
-	AssetIDs         []int64
-	Status           string
-	EvidenceGrade    string // self_claim | local_effect | remote_verified
+	TriggerPoint    string
+	DataFlow        string
+	ReproConditions string
+	Impact          string
+	Worker          string
+	AssetIDs        []int64
+	Status          string
+	EvidenceGrade   string // self_claim | local_effect | remote_verified
 	// 证据驱动分类/分级（借 Today Security 方法论，见 evidence_triage.go）。
-	HarmPrimitive string // 危害原语：rce/auth_bypass/privilege_escalation/unauthorized/.../other
-	AssetTier     string // 受影响资产最高分层：s/a/b/c
-	TriageTier    int    // 五档「需要尽快处置」分级：1 最优先 → 6 跟踪
+	HarmPrimitive        string // 危害原语：rce/auth_bypass/privilege_escalation/unauthorized/.../other
+	AssetTier            string // 受影响资产最高分层：s/a/b/c
+	TriageTier           int    // 五档「需要尽快处置」分级：1 最优先 → 6 跟踪
 	Report               string // 详细报告(Markdown);仅 GetFinding 填充,列表查询不带
 	ReportConversationID *int64 `json:"report_conversation_id,omitempty"`
 	CreatedAt            time.Time
@@ -236,9 +236,9 @@ func (d *DB) ListFindings(limit int) ([]*DBFinding, error) {
 // filter on that column". Sort is "severity" (severity desc, then time) or
 // anything else (time only). TimeDirection defaults to newest first.
 type FindingFilter struct {
-	Severity      string // high | medium | low
-	Status        string // pending | false_positive | ignored | resolved
-	VulnClass     string
+	Severity  string // high | medium | low
+	Status    string // pending | false_positive | ignored | resolved
+	VulnClass string
 	// EvidenceGrade 按反蜜罐证据分级过滤: self_claim(待复核) / local_effect / remote_verified。
 	EvidenceGrade string
 	TaskID        string // 任务 id(字符串形式;空/非法 = 不按任务筛选)

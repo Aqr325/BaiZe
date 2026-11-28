@@ -9,8 +9,8 @@ import (
 
 func testRoom() Room {
 	return Room{
-		RoomID:         "room-1",
-		Name:           "Research Squad",
+		RoomID: "room-1",
+		Name:   "Research Squad",
 		Members: []Member{
 			{MemberID: "m-alice", Profile: "alice", Handle: "alice"},
 			{MemberID: "m-bob", Profile: "bob", Handle: "bob"},
@@ -25,8 +25,8 @@ func localProfiles() []string { return []string{"alice", "bob", "carol"} }
 
 func userEvent(seq int, thread, text string) Event {
 	return Event{Seq: seq, EventID: "e" + itoa(seq), Kind: MessageUser,
-		Actor: Actor{Kind: "user", ID: "human"},
-		Payload: map[string]any{"text": text, "thread_id": thread},
+		Actor:              Actor{Kind: "user", ID: "human"},
+		Payload:            map[string]any{"text": text, "thread_id": thread},
 		AuthorityGatewayID: "gw-1", AuthorityEpoch: 1}
 }
 

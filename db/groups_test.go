@@ -16,9 +16,9 @@ func TestGroupRoomRoundTrip(t *testing.T) {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
 	defer d.Close()
-	defer d.Exec(`DELETE FROM group_events WHERE room_id='test-room-1'`) //nolint:errcheck
+	defer d.Exec(`DELETE FROM group_events WHERE room_id='test-room-1'`)  //nolint:errcheck
 	defer d.Exec(`DELETE FROM group_members WHERE room_id='test-room-1'`) //nolint:errcheck
-	defer d.Exec(`DELETE FROM group_rooms WHERE room_id='test-room-1'`)  //nolint:errcheck
+	defer d.Exec(`DELETE FROM group_rooms WHERE room_id='test-room-1'`)   //nolint:errcheck
 
 	room := group.Room{
 		RoomID: "test-room-1", Name: "Test Squad", GatewayID: "gw-test", AuthorityEpoch: 1,
@@ -51,14 +51,14 @@ func TestGroupRoomRoundTrip(t *testing.T) {
 
 	// Events: seq must be monotonic and unique per room.
 	ev1 := group.Event{EventID: "ev-1", Kind: group.MessageUser, Actor: group.Actor{Kind: "user", ID: "human"},
-		Payload: map[string]any{"text": "hello room", "thread_id": "t1"},
+		Payload:            map[string]any{"text": "hello room", "thread_id": "t1"},
 		AuthorityGatewayID: "gw-test", AuthorityEpoch: 1}
 	seq1, err := d.AppendGroupEvent(room.RoomID, ev1)
 	if err != nil {
 		t.Fatalf("AppendGroupEvent ev1: %v", err)
 	}
 	ev2 := group.Event{EventID: "ev-2", Kind: group.MessageMember, Actor: group.Actor{Kind: "member", ID: "m1", Profile: "alice"},
-		Payload: map[string]any{"text": "@bob check this", "thread_id": "t1", "member_id": "m1", "round_index": 0},
+		Payload:            map[string]any{"text": "@bob check this", "thread_id": "t1", "member_id": "m1", "round_index": 0},
 		AuthorityGatewayID: "gw-test", AuthorityEpoch: 1}
 	seq2, err := d.AppendGroupEvent(room.RoomID, ev2)
 	if err != nil {
@@ -140,9 +140,9 @@ func TestGroupEventsSeqUniqueUnderConcurrency(t *testing.T) {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
 	defer d.Close()
-	defer d.Exec(`DELETE FROM group_events WHERE room_id='test-room-2'`) //nolint:errcheck
+	defer d.Exec(`DELETE FROM group_events WHERE room_id='test-room-2'`)  //nolint:errcheck
 	defer d.Exec(`DELETE FROM group_members WHERE room_id='test-room-2'`) //nolint:errcheck
-	defer d.Exec(`DELETE FROM group_rooms WHERE room_id='test-room-2'`)  //nolint:errcheck
+	defer d.Exec(`DELETE FROM group_rooms WHERE room_id='test-room-2'`)   //nolint:errcheck
 
 	room := group.Room{RoomID: "test-room-2", Name: "R2", GatewayID: "gw", AuthorityEpoch: 1,
 		Members: []group.Member{
@@ -156,8 +156,8 @@ func TestGroupEventsSeqUniqueUnderConcurrency(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		go func(n int) {
 			ev := group.Event{EventID: "evc-" + strings.Repeat("x", 1) + itoaTest(n), Kind: group.MessageUser,
-				Actor: group.Actor{Kind: "user", ID: "human"},
-				Payload: map[string]any{"text": "msg " + itoaTest(n), "thread_id": "t1"},
+				Actor:              group.Actor{Kind: "user", ID: "human"},
+				Payload:            map[string]any{"text": "msg " + itoaTest(n), "thread_id": "t1"},
 				AuthorityGatewayID: "gw", AuthorityEpoch: 1}
 			seq, _ := d.AppendGroupEvent(room.RoomID, ev)
 			done <- seq

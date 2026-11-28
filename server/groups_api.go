@@ -235,8 +235,8 @@ func (s *Server) groupSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	ev := group.Event{
 		EventID: "duser:" + newGroupID(), Kind: group.MessageUser,
-		Actor:  group.Actor{Kind: "user", ID: "human"},
-		Payload: map[string]any{"text": strings.TrimSpace(in.Text), "thread_id": threadID},
+		Actor:              group.Actor{Kind: "user", ID: "human"},
+		Payload:            map[string]any{"text": strings.TrimSpace(in.Text), "thread_id": threadID},
 		AuthorityGatewayID: "local", AuthorityEpoch: 1,
 	}
 	if _, err := s.m.pg.AppendGroupEvent(id, ev); err != nil {
@@ -256,8 +256,8 @@ func (s *Server) groupStop(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ev := group.Event{
 		EventID: "dstop:" + newGroupID(), Kind: group.RoomStopRequest,
-		Actor: group.Actor{Kind: "user", ID: "human"},
-		Payload: map[string]any{"cancel_id": newGroupID()},
+		Actor:              group.Actor{Kind: "user", ID: "human"},
+		Payload:            map[string]any{"cancel_id": newGroupID()},
 		AuthorityGatewayID: "local", AuthorityEpoch: 1,
 	}
 	if _, err := s.m.pg.AppendGroupEvent(id, ev); err != nil {
@@ -278,8 +278,8 @@ func (s *Server) groupContinue(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ev := group.Event{
 		EventID: "dcont:" + newGroupID(), Kind: group.RoomContinued,
-		Actor: group.Actor{Kind: "user", ID: "human"},
-		Payload: map[string]any{"discussion_event_id": r.URL.Query().Get("discussion"), "seen_through_seq": 0},
+		Actor:              group.Actor{Kind: "user", ID: "human"},
+		Payload:            map[string]any{"discussion_event_id": r.URL.Query().Get("discussion"), "seen_through_seq": 0},
 		AuthorityGatewayID: "local", AuthorityEpoch: 1,
 	}
 	if _, err := s.m.pg.AppendGroupEvent(id, ev); err != nil {

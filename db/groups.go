@@ -26,11 +26,11 @@ type GroupMember struct {
 
 // GroupRoom is the persisted projection of one hosted room.
 type GroupRoom struct {
-	Room        group.Room   `json:"room"`
-	Image       string       `json:"image"`
-	DisbandedAt *time.Time   `json:"disbanded_at,omitempty"`
-	CreatedAt   time.Time    `json:"created_at"`
-	UpdatedAt   time.Time    `json:"updated_at"`
+	Room        group.Room    `json:"room"`
+	Image       string        `json:"image"`
+	DisbandedAt *time.Time    `json:"disbanded_at,omitempty"`
+	CreatedAt   time.Time     `json:"created_at"`
+	UpdatedAt   time.Time     `json:"updated_at"`
 	Members     []GroupMember `json:"members"`
 	// MemberCount is filled by ListGroupRooms (list view only); Members stays
 	// empty there and is loaded by GetGroupRoom.
@@ -81,17 +81,17 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
 // GetGroupRoom loads a room with its members (ErrGroupNotFound when missing).
 func (d *DB) GetGroupRoom(roomID string) (*GroupRoom, error) {
 	var (
-		r        GroupRoom
-		image    string
-		disband  sql.NullTime
-		created  time.Time
-		updated  time.Time
-		routing  string
-		lead     string
-		purpose  string
-		notes    string
-		gateway  string
-		epoch    int
+		r       GroupRoom
+		image   string
+		disband sql.NullTime
+		created time.Time
+		updated time.Time
+		routing string
+		lead    string
+		purpose string
+		notes   string
+		gateway string
+		epoch   int
 	)
 	err := d.QueryRow(`SELECT room_id, name, gateway_id, authority_epoch, routing, lead_member_id,
        purpose, notes, image, disbanded_at, created_at, updated_at

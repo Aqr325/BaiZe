@@ -42,7 +42,9 @@ type Limits struct {
 }
 
 // DefaultLimits returns the canonical hermes ceilings (3 rounds, 10 messages).
-func DefaultLimits() Limits { return Limits{MaxRounds: DefaultMaxRounds, MaxMessages: DefaultMaxMessages} }
+func DefaultLimits() Limits {
+	return Limits{MaxRounds: DefaultMaxRounds, MaxMessages: DefaultMaxMessages}
+}
 
 // Validate rejects non-positive ceilings.
 func (l Limits) Validate() error {
@@ -59,17 +61,17 @@ func (l Limits) Validate() error {
 
 // Event kinds (hermes hosted_room_discussion typed room log).
 const (
-	MessageUser      = "message.user"
-	MessageMember    = "message.member"
-	TurnSettled      = "turn.settled"
-	TurnFailed       = "turn.failed"
-	TurnCancelled    = "turn.cancelled"
-	TurnDeferred     = "turn.deferred"
-	RoomActivity     = "room.activity"
-	RoomStopRequest  = "room.stop_requested"
-	RoomContinued    = "room.continued"
-	RoomRouted       = "room.routed"
-	RoomAssignment   = "room.assignment"
+	MessageUser     = "message.user"
+	MessageMember   = "message.member"
+	TurnSettled     = "turn.settled"
+	TurnFailed      = "turn.failed"
+	TurnCancelled   = "turn.cancelled"
+	TurnDeferred    = "turn.deferred"
+	RoomActivity    = "room.activity"
+	RoomStopRequest = "room.stop_requested"
+	RoomContinued   = "room.continued"
+	RoomRouted      = "room.routed"
+	RoomAssignment  = "room.assignment"
 )
 
 // Decision statuses (hermes DecisionStatus).

@@ -21,22 +21,22 @@ import (
 // ── 危害原语（harm primitive）───────────────────────────────────────────────
 // 参照 Today Security：按漏洞的「本质危害」而非仅 CVSS 分数分类，驱动 triage。
 const (
-	HarmRCE           = "rce"                    // 远程代码执行/命令执行/接管/反序列化/内存破坏
-	HarmAuthBypass    = "auth_bypass"            // 认证绕过/硬编码凭据/默认口令
-	HarmPrivEsc       = "privilege_escalation"   // 内核提权/沙箱/容器逃逸
-	HarmUnauthorized  = "unauthorized"           // 未授权/无认证访问
-	HarmFileWrite     = "file_write"             // 任意文件写/上传/任意文件读
-	HarmInjection     = "injection"              // SQL/命令/模板注入、XSS、CSRF
-	HarmSSRF          = "ssrf"                   // 服务端请求伪造
-	HarmInfoLeak      = "info_leak"              // 信息/数据泄露
-	HarmDoS           = "dos"                    // 拒绝服务
-	HarmOther         = "other"                  // 其他/未分类
+	HarmRCE          = "rce"                  // 远程代码执行/命令执行/接管/反序列化/内存破坏
+	HarmAuthBypass   = "auth_bypass"          // 认证绕过/硬编码凭据/默认口令
+	HarmPrivEsc      = "privilege_escalation" // 内核提权/沙箱/容器逃逸
+	HarmUnauthorized = "unauthorized"         // 未授权/无认证访问
+	HarmFileWrite    = "file_write"           // 任意文件写/上传/任意文件读
+	HarmInjection    = "injection"            // SQL/命令/模板注入、XSS、CSRF
+	HarmSSRF         = "ssrf"                 // 服务端请求伪造
+	HarmInfoLeak     = "info_leak"            // 信息/数据泄露
+	HarmDoS          = "dos"                  // 拒绝服务
+	HarmOther        = "other"                // 其他/未分类
 )
 
 // harmPrimitiveRules 是「关键词 → 危害原语」的确定性规则（小写匹配）。
 // 顺序即优先级：越靠前的原语越严重，命中即返回（如「远程代码执行」优先于「注入」）。
 var harmPrimitiveRules = []struct {
-	keywords []string
+	keywords  []string
 	primitive string
 }{
 	{[]string{"remote code execution", "rce", "远程代码执行", "命令执行", "任意代码", "code execution", "反序列化", "deserialization", "内存破坏", "memory corruption", "接管", "takeover"}, HarmRCE},

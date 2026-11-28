@@ -212,11 +212,11 @@ func requiresDirectReply(room Room, source *ValidatedEvent, member Member, round
 
 // PromptOpts mirrors the optional _build_prompt inputs.
 type PromptOpts struct {
-	ReplyRequired bool
-	Context       map[string]string
+	ReplyRequired  bool
+	Context        map[string]string
 	AddressedByJob string
-	AssignedBy    *Member
-	Routed        bool
+	AssignedBy     *Member
+	Routed         bool
 }
 
 // contextLines renders room purpose and shared notes (hermes _context_lines).
@@ -585,25 +585,25 @@ func PlanPublication(roomValue Room, events []Event, task TaskPlan, status strin
 		text := truncateUTF8Text(terminalText(result, "text", ""), MaxMemberTextBytes, TruncatedReplyNotice)
 		if IsPassText(text) {
 			eventsOut = append(eventsOut, EventPlan{EventID: terminalID, Kind: TurnSettled, Actor: gatewayActor(gateway),
-				Payload: withExtra(coords, "seen_through_seq", task.SeenThroughSeq, "message_event_id", nil, "passed", true),
+				Payload:            withExtra(coords, "seen_through_seq", task.SeenThroughSeq, "message_event_id", nil, "passed", true),
 				AuthorityGatewayID: gateway, AuthorityEpoch: epoch})
 		} else {
 			eventsOut = append(eventsOut, EventPlan{EventID: messageID, Kind: MessageMember, Actor: memberActor,
-				Payload: withExtra(coords, "text", text),
+				Payload:            withExtra(coords, "text", text),
 				AuthorityGatewayID: gateway, AuthorityEpoch: epoch})
 			eventsOut = append(eventsOut, EventPlan{EventID: terminalID, Kind: TurnSettled, Actor: gatewayActor(gateway),
-				Payload: withExtra(coords, "seen_through_seq", task.SeenThroughSeq, "message_event_id", messageID, "passed", false),
+				Payload:            withExtra(coords, "seen_through_seq", task.SeenThroughSeq, "message_event_id", messageID, "passed", false),
 				AuthorityGatewayID: gateway, AuthorityEpoch: epoch})
 		}
 	case TermFailed:
 		errorText := terminalText(result, "error", "member turn failed")
 		eventsOut = append(eventsOut, EventPlan{EventID: terminalID, Kind: TurnFailed, Actor: gatewayActor(gateway),
-			Payload: withExtra(coords, "seen_through_seq", task.SeenThroughSeq, "error", errorText),
+			Payload:            withExtra(coords, "seen_through_seq", task.SeenThroughSeq, "error", errorText),
 			AuthorityGatewayID: gateway, AuthorityEpoch: epoch})
 	case TermCancelled:
 		reason := terminalText(result, "reason", "member turn cancelled")
 		eventsOut = append(eventsOut, EventPlan{EventID: terminalID, Kind: TurnCancelled, Actor: gatewayActor(gateway),
-			Payload: withExtra(coords, "seen_through_seq", task.SeenThroughSeq, "reason", reason),
+			Payload:            withExtra(coords, "seen_through_seq", task.SeenThroughSeq, "reason", reason),
 			AuthorityGatewayID: gateway, AuthorityEpoch: epoch})
 	}
 	return PublicationPlan{TaskID: task.Identity.TaskID, TerminalKind: effective, Events: eventsOut}, nil
