@@ -60,6 +60,15 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
         working-directory: web
+      - name: Frontend lint gate
+        working-directory: web
+        run: npm run lint
+      - name: Frontend check gate (format + organizeImports)
+        working-directory: web
+        run: npm run check
+      - name: Frontend typecheck gate
+        working-directory: web
+        run: npx tsc --noEmit
       - run: npm run build:static
         working-directory: web
       - uses: actions/upload-artifact@v4
@@ -67,9 +76,55 @@ jobs:
           name: web-dist
           path: web/out
 
+  # ① 质量门禁（Go 侧）：发布前必须过 gofmt / go vet / go test。
+  # binaries 依赖本 job，因此 docker、docker-publish、release 全链路被把关。
+  quality-gate:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: artex
+          POSTGRES_PASSWORD: artex
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U artex -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ARTEX_PG_DSN: postgres://artex:artex@127.0.0.1:5432/postgres?sslmode=disable
+      GOPROXY: https://goproxy.cn,direct
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt check
+        run: |
+          set -euo pipefail
+          unformatted=$(gofmt -l . | grep -vE '^(web|vendor|node_modules|\.toolchain|\.golang)' || true)
+          if [ -n "$unformatted" ]; then
+            echo "::error::以下文件需要 gofmt 格式化："
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: Go test (full suite, race detector)
+        run: go test ./... -race -count=1
+
   # ② 五平台交叉编译（内嵌前端）+ 打 zip
   binaries:
-    needs: [prepare, frontend]
+    needs: [prepare, frontend, quality-gate]
     runs-on: ubuntu-latest
     strategy:
       matrix:

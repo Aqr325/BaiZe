@@ -46,6 +46,17 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: gofmt check
+        run: |
+          set -euo pipefail
+          unformatted=$(gofmt -l . | grep -vE '^(web|vendor|node_modules|\.toolchain|\.golang)' || true)
+          if [ -n "$unformatted" ]; then
+            echo "::error::以下文件需要 gofmt 格式化："
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
       - name: Go test (full suite, race detector)
         # -count=1 禁用测试结果缓存，确保每次 PR 都真实执行。
         # 依赖 PG 的用例通过 ARTEX_PG_DSN 连上面的 service；重 DB 包的
@@ -84,24 +95,34 @@ jobs:
             echo "== scan skills/$s =="
             # --use-shipped-baseline 自动加载 <skill>/.skillspector-baseline.yaml
             "$SP" scan "skills/$s" --no-llm --use-shipped-baseline --format json > "scan-$s.json" || fail=1
-            python - "$s" <<'PY'
-          import json, sys, collections
-          s = sys.argv[1]
-          d = json.load(open(f"scan-{s}.json"))
-          remaining = d.get("issues", [])
-          blocked = [i for i in remaining if i.get("severity") in ("HIGH", "CRITICAL")]
-          risk = d.get("risk_assessment", {})
-          print(f"  {s}: remaining={len(remaining)} suppressed={d.get('suppressed_count')} "
-                f"risk={risk.get('severity')}/{risk.get('recommendation')} "
-                f"blocking_high_crit={len(blocked)}")
-          if blocked:
-              print(f"  BLOCKED rules: {collections.Counter(i['id'] for i in blocked)}")
-          for i in remaining:
-              if i.get("severity") in ("HIGH", "CRITICAL"):
-                  loc = i.get("location") or {}
-                  f = loc.get("file") if isinstance(loc, dict) else loc
-                  print(f"    [{i['severity']}] {i['id']} {f} {(i.get('pattern') or '')[:60]}")
-PY
+            python .github/scripts/skillspector-check.py "$s"
           done
           echo "scan exit markers: fail=$fail"
           exit $fail
+
+  # 前端质量门禁：biome lint + check + tsc。此前 CI 只有 Go 测试和 skill 体检，
+  # 前端从未在 CI 执行过任何检查；本 job 补齐，与 go-test 并行跑。
+  frontend-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: npm ci
+        working-directory: web
+        run: npm ci
+      - name: Frontend lint gate
+        working-directory: web
+        run: npm run lint
+      - name: Frontend check gate (format + organizeImports)
+        working-directory: web
+        run: npm run check
+      - name: Frontend typecheck gate
+        working-directory: web
+        run: npx tsc --noEmit
