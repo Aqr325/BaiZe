@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.1/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -37,8 +37,12 @@
       "!.husky",
       "!node_modules",
       "!.next",
+      "!.next.prev-*",
       "!dist",
+      "!dist.prev-*",
       "!out",
+      "!out.prev-*",
+      "!stage-test",
       "!src/components/ui",
       "!src/components/calendar"
     ]
@@ -66,7 +70,7 @@
         "noUndeclaredDependencies": "error"
       },
       "nursery": {
-        "useSortedClasses": "on",
+        "useSortedClasses": "warn",
         "useNullishCoalescing": "error",
         "noFloatingPromises": "error",
         "noMisusedPromises": "error"

@@ -4,12 +4,59 @@
 
 ## [Unreleased]
 
+### 修复
+
+- 前端 lint 门禁：升级 `@biomejs/biome` 至 2.5.15（`~2.5.15` 锁定 2.5 minor），修复 2.5.1 在 Windows 上 `lint` 子命令全局栈溢出（`workspace_worker_N has overflowed its stack`，exit 127）导致 lint/CI 门禁形同虚设的问题；同步 biome schema 版本，排除 `.next.prev-*`/`stage-test` 等本地构建备份目录，`useSortedClasses` 降为 warn。门禁恢复正常执行，`tsc --noEmit` 仍为 0。
+
+## [0.3.34] - 2026-11-28
+
 ### 新增
 
 - 证据驱动分级闭环：Agent 的 `list_findings` 只读工具现返回 `triage_tier`/`harm_primitive`/`asset_tier` 三字段——`db.Node` 增加对应字段，`PopulateFindingTrafficIDs` 在同一条查询中带回分级（零额外查询），`compactFinding` 输出给模型，Agent 能回看自己产出的分级。前端 findings 主列表新增分级徽章（带紧急度色调），标签映射抽到 `lib/finding-triage.ts` 与复核队列卡共用，避免两处文案漂移。新增 `TestPopulateFindingTrafficIDsEnrichesTriage` 单测。
 
-- 注册 Scrapling（D4Vinci/Scrapling, BSD-3）官方 MCP 服务器为第 13 个 MCP 数据源：`scrapling`（stdio, `cmd /c uvx scrapling@latest mcp`），默认禁用、按需启用。用于自适应网页采集、Stealth 反爬绕过与网页转 Markdown，支撑证据链 `remote_verified` 远端取证与 RAG 语料采集。种子写入 `db.go seedPojunMCPServers`，与前端 MOCK 镜像 `web/src/lib/mock/data.ts`（id 2377）同步。
+## [0.3.33] - 2026-11-28
+
+### 新增
+
 - 证据驱动分类/分级（借 Today Security 方法论）：新增 `db/evidence_triage.go` 纯函数核心——危害原语分类（HarmPrimitive）、投机/未证实措辞检测（SpeculativeMarkers/IsSpeculative）、多 CVE 综述抗串烧检测（IsMultiCVESummary）、资产分层（AssetTier/MaxAssetTier）、五档处置分级（TriageTier，含防抖语义）、SSVC 式头条排序（HeadlineRank）、重力衰减（GravityDecay）。`findings` 表新增 `harm_primitive`/`asset_tier`/`triage_tier` 三列（插入时由纯函数计算，best-effort 不阻断入库）；`report_finding` 加准入守卫（投机措辞降级 severity 至 medium、多 CVE 综述拒绝）；复核队列卡按 `triage_tier` 稳定排序 + 危害原语/分级徽章 + 「最该处理」头条行；顺带修复历史遗留的 `AddFinding`/`AddFindingGrade` 测试签名不一致（9 参→13 参）。
+- 注册 Scrapling（D4Vinci/Scrapling, BSD-3）官方 MCP 服务器为第 13 个 MCP 数据源：`scrapling`（stdio, `cmd /c uvx scrapling@latest mcp`），默认禁用、按需启用。用于自适应网页采集、Stealth 反爬绕过与网页转 Markdown，支撑证据链 `remote_verified` 远端取证与 RAG 语料采集。种子写入 `db.go seedPojunMCPServers`，与前端 MOCK 镜像 `web/src/lib/mock/data.ts`（id 2377）同步。
+
+### 修复
+
+- 修复 triage 三列引入的 `findingSelectCols` 与手写 Scan 列数/顺序错位（详情/复核/导出接口 500）；`traffic_count` 统一置于 SELECT 末列并同步三处 Scan；补齐 17 处测试签名。
+- Windows 目录句柄 `Sync()` 报 `Access is denied` 导致流量证据落盘失败——Windows 下跳过目录 fsync（NTFS 自身保证目录项落盘），Unix 保留；修正 DeepenFinding 测试对并发配置的隐含假设。
+
+## [0.3.32] - 2026-11-26
+
+### 新增
+
+- 开源增强与智能体攻击面防御：新增 red-team-ops 阶段化（ATT&CK）工具索引技能；接入 agentic-attack-detections（MIT）与 Anthropic-Cybersecurity-Skills（Apache-2.0，818 子技能）双检测规则/技能库；补齐批量汇总报告、资产测绘、红队横向三个增强 Agent 角色。
+- Skill 供应链安全：skill 溯源 tree-hash 校验（防投毒）、skill 内容预检堵住 `skill.LoadDir` 零校验攻击面、Guard deny 规则覆盖 skill 正文注入、关闭 SC1/SC4 供应链风险面、SkillSpector baseline 白名单 + CI gate。
+- MCP 安全三件套：描述变更阻断 + 人工批准闭环、安全事件持久化 + 面板（补齐可观测）、命名空间隔离（拒绝工具全名碰撞，防跨 server 遮蔽）；WebFetch/MCP 返回值加数据块围栏标记外部内容不可信。
+- Finding 证据来源分级：模型不可自证 `remote_verified`；拦截配置变更审计；反蜜罐外泄防护（env 屏蔽 + 外泄拦截规则）；DENY 熔断（StopWorker 取消意图并禁自动重试）；无人值守模式判官策略安全收敛。
+
+### 修复
+
+- `evidence_grade` 扫描列对齐（`GetFinding`/`ListFindingsForExport` 补列）；i18n 泄漏（MCP 安全卡片文案、证据分级徽标走 i18n，英文界面不再泄漏中文）；跨平台路径匹配。
+- 全面安全审查修复 7 项：IP 围栏绕过、pin 基线污染、子进程密钥泄露、规则误伤等；api-recon 依赖升级钉版，修复 4 个已知漏洞 + 114 个未钉版。
+- 技能文件树剪枝依赖目录，消除 Skills 页无界遍历；修复 scopesentry SKILL.md frontmatter 格式。
+- 加 `.gitattributes` 防止 clone 后换行转换导致技能 tree-hash 误判篡改。
+
+## [0.3.31] - 2026-11-22
+
+### 新增
+
+- 开源发布增强版（AGPL-3.0）：在 v0.3.30 上游基础上合入本地增强快照。
+- 记忆系统：`memories` 表 + 自动沉淀（含投毒过滤）+ Obsidian 同步 + 记忆库页面。
+- 子代理委派：`delegate_task` + 生命周期状态机 + 事件 broker + 共享状态 + 竞态修复。
+- 群聊：room/discussion 策略 + rooms/members/events 持久化 + groups 页面。
+- 前端：全局搜索、洞察、任务对比、渗透报告、子代理/记忆/Obsidian 视图。
+- 工具链：httpx/katana/nuclei 集成、断点恢复、渐进式披露 Skill、MCP 模板库。
+- README 增加 AGPL/Go/CI/版本/Stars/Forks/Last-commit 徽章。
+
+### 修复与安全
+
+- 认证限流、JWT `token_version` 撤销、SSRF 逐跳防护、记忆投毒确定性过滤、前端 401 语义化、请求体上限、`putSettings` 原子化、CORS 白名单、符号链接防护。
 
 ## [0.3.30] - 2026-11-14
 

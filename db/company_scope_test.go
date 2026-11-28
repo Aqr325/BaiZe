@@ -326,16 +326,31 @@ func TestCompanyScopeAttribution(t *testing.T) {
 		d.Close()
 		t.Fatalf("startMax: %v", err)
 	}
-	t.Cleanup(func() {
-		_, _ = d.Exec(`DELETE FROM assets WHERE id > $1`, startMax)
+	var startCompanyMax int64
+	if err := d.QueryRow(`SELECT COALESCE(MAX(id),0) FROM companies`).Scan(&startCompanyMax); err != nil {
 		d.Close()
+		t.Fatalf("startCompanyMax: %v", err)
+	}
+	// 注册顺序：d.Close 先注册，cleanup 后注册 → LIFO 下 cleanup 先跑、Close 最后跑。
+	// 必须同时清理本用例创建的 company（company_scope 有 CASCADE 会连带删除），
+	// 否则固定 CIDR 归属会被历史残留公司抢占，导致下次单跑失败。
+	t.Cleanup(func() { d.Close() })
+	t.Cleanup(func() {
+		if _, err := d.Exec(`DELETE FROM assets WHERE id > $1`, startMax); err != nil {
+			t.Errorf("清理测试资产失败: %v", err)
+		}
+		if _, err := d.Exec(`DELETE FROM companies WHERE id > $1`, startCompanyMax); err != nil {
+			t.Errorf("清理测试公司失败: %v", err)
+		}
 	})
 
 	uniq := startMax + 1
 	root := fmt.Sprintf("scopetest%d.com", uniq)
 	sub := "api." + root
-	ipIn := "198.51.100.9"
-	ipOut := "203.0.113.9"
+	// 用 uniq 派生的唯一文档段 IP，避免与历史残留 company scope 的固定 CIDR 冲突。
+	ipIn := fmt.Sprintf("198.18.%d.%d", (uniq/256)%256, uniq%256)
+	ipOut := fmt.Sprintf("198.19.%d.%d", (uniq/256)%256, uniq%256)
+	cidr := fmt.Sprintf("198.18.%d.0/24", (uniq/256)%256)
 	outDomain := fmt.Sprintf("other%d.net", uniq)
 
 	cid, _, err := cs.UpsertCompany(fmt.Sprintf("ScopeCo %d", uniq), "")
@@ -354,7 +369,7 @@ func TestCompanyScopeAttribution(t *testing.T) {
 		t.Fatalf("pre-scope asset should be unattributed, got %v", *preCompanyID)
 	}
 
-	cs.AddScope(cid, []string{root, "198.51.100.0/24"}, "unit test")
+	cs.AddScope(cid, []string{root, cidr}, "unit test")
 
 	mustCid := func(id int64, want int64, label string) {
 		var cID *int64
