@@ -1199,6 +1199,12 @@ CREATE TABLE IF NOT EXISTS findings (
     severity    TEXT NOT NULL DEFAULT '',
     summary     TEXT NOT NULL DEFAULT '',
     evidence    TEXT NOT NULL DEFAULT '',
+    -- 证据链四要素(反幻觉): 触发点/数据流/复现条件/影响面, 模型上报时结构化填写,
+    -- 缺任一要素的发现应视为「待验证线索」而非已确认漏洞(见 skills/evidence-chain)。
+    trigger_point    TEXT NOT NULL DEFAULT '',
+    data_flow        TEXT NOT NULL DEFAULT '',
+    repro_conditions TEXT NOT NULL DEFAULT '',
+    impact           TEXT NOT NULL DEFAULT '',
     worker      TEXT NOT NULL DEFAULT '',
     asset_ids   JSONB NOT NULL DEFAULT '[]',
     -- 处置状态：pending 待处理 / in_progress 处理中 / confirmed 已确认 / resolved 已处理 / fixed 已修复 /
@@ -1214,12 +1220,25 @@ ALTER TABLE findings ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pend
 ALTER TABLE findings ADD COLUMN IF NOT EXISTS name   TEXT NOT NULL DEFAULT '';
 ALTER TABLE findings ADD COLUMN IF NOT EXISTS report TEXT NOT NULL DEFAULT '';
 ALTER TABLE findings ADD COLUMN IF NOT EXISTS report_conversation_id BIGINT REFERENCES conversations(id) ON DELETE SET NULL;
+ALTER TABLE findings ADD COLUMN IF NOT EXISTS trigger_point    TEXT NOT NULL DEFAULT '';
+ALTER TABLE findings ADD COLUMN IF NOT EXISTS data_flow        TEXT NOT NULL DEFAULT '';
+ALTER TABLE findings ADD COLUMN IF NOT EXISTS repro_conditions TEXT NOT NULL DEFAULT '';
+ALTER TABLE findings ADD COLUMN IF NOT EXISTS impact           TEXT NOT NULL DEFAULT '';
 -- 证据来源分级(反蜜罐「外部自述/本地效果/远端独立验证」三分):
 -- self_claim 外部自述/页面/日志声称,无独立实证(默认,模型记录时保守);
 -- local_effect Worker 本地可复现效果,但非远端独立验证;
 -- remote_verified 远端独立复现/复测确认,只有该级才作为已独立验证结论。
 -- 取值不加 CHECK:旧库靠 ALTER 补列,统一由 db.ValidEvidenceGrade 白名单校验。
 ALTER TABLE findings ADD COLUMN IF NOT EXISTS evidence_grade TEXT NOT NULL DEFAULT 'self_claim';
+--- 证据驱动分类/分级(借鉴 Today Security 方法论,见 db/evidence_triage.go):
+--- harm_primitive 危害原语(rce/auth_bypass/privilege_escalation/unauthorized/file_write/
+---   injection/ssrf/info_leak/dos/other),由纯函数在插入时从名称+摘要+类别分类;
+--- asset_tier 受影响资产的最高分层(s/a/b/c),从资产描述字段推导;
+--- triage_tier 五档「需要尽快处置」分级(1最优先→6跟踪),防抖由 created_at 稳定排序实现。
+--- 取值均不加 CHECK,统一由 db 侧纯函数白名单约束。
+ALTER TABLE findings ADD COLUMN IF NOT EXISTS harm_primitive TEXT NOT NULL DEFAULT '';
+ALTER TABLE findings ADD COLUMN IF NOT EXISTS asset_tier     TEXT NOT NULL DEFAULT 'c';
+ALTER TABLE findings ADD COLUMN IF NOT EXISTS triage_tier    INT  NOT NULL DEFAULT 6;
 CREATE INDEX IF NOT EXISTS idx_findings_task ON findings(task_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_findings_time ON findings(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_findings_status ON findings(status, created_at DESC);

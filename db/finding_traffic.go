@@ -333,12 +333,48 @@ type RecordFindingInput struct {
 	// ModelEvidenceGrade, so a model can only report self_claim/local_effect —
 	// never remote_verified (that requires the retest path).
 	EvidenceGrade string
+	// 证据链四要素(反幻觉): 模型上报时应结构化填写触发点/数据流/复现条件/影响面,
+	// 缺任一要素的发现应视为「待验证线索」而非已确认漏洞(见 skills/evidence-chain)。
+	TriggerPoint, DataFlow, ReproConditions, Impact string
 }
 
 type RecordedFinding struct {
 	FindingID int64           `json:"finding_id,string"`
 	NodeID    int64           `json:"finding_node_id,string"`
 	Traffic   *FindingTraffic `json:"traffic"`
+}
+
+// triageQueryer 由 *DB 与 *sql.Tx 都满足，供 computeTriageFields 查询资产。
+type triageQueryer interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+// computeTriageFields 在插入时派生证据驱动的三字段：危害原语 / 资产分层 / 五档分级。
+// 全 best-effort：资产查询失败只降级为 AssetTierC，绝不阻断 finding 入库（insert 是
+// 主路径，triage 是增强）。纯函数见 evidence_triage.go。
+func computeTriageFields(q triageQueryer, assetIDs []int64, vulnclass, name, summary, severity, evidenceGrade, status string) (harmPrim, assetTier string, triageTier int) {
+	text := strings.Join([]string{name, summary, vulnclass}, " ")
+	harmPrim = HarmPrimitive(text)
+	assetTier = AssetTierC
+	if len(assetIDs) > 0 {
+		rows, err := q.Query(`SELECT type, COALESCE(app_name,''), COALESCE(service_name,''),
+			COALESCE(array_to_string(technologies,' '),''), COALESCE(category,''), COALESCE(domain,'')
+			FROM assets WHERE id = ANY($1)`, assetIDs)
+		if err == nil {
+			var tiers []string
+			for rows.Next() {
+				var typ, app, svc, tech, cat, dom string
+				if scanErr := rows.Scan(&typ, &app, &svc, &tech, &cat, &dom); scanErr != nil {
+					break
+				}
+				tiers = append(tiers, AssetTier(strings.Join([]string{typ, app, svc, tech, cat, dom}, " ")))
+			}
+			rows.Close()
+			assetTier = MaxAssetTier(tiers)
+		}
+	}
+	triageTier = TriageTier(severity, evidenceGrade, harmPrim, assetTier, status)
+	return harmPrim, assetTier, triageTier
 }
 
 // ctx 由调用方传入本次事务所用的上下文（而非在内部取 context.Background）：
@@ -365,7 +401,7 @@ func RecordFindingTx(ctx context.Context, tx *sql.Tx, in RecordFindingInput, pre
 			return nil, errors.New("intent_id 必须是本任务的意图（关联任务意图只读）")
 		}
 	}
-	payload, _ := json.Marshal(map[string]any{"vulnclass": in.VulnClass, "name": in.Name, "severity": in.Severity, "summary": in.Summary, "evidence": map[string]any{"by": in.Worker, "poc": in.Evidence}})
+	payload, _ := json.Marshal(map[string]any{"vulnclass": in.VulnClass, "name": in.Name, "severity": in.Severity, "summary": in.Summary, "evidence": map[string]any{"by": in.Worker, "poc": in.Evidence}, "evidence_chain": map[string]any{"trigger_point": in.TriggerPoint, "data_flow": in.DataFlow, "repro_conditions": in.ReproConditions, "impact": in.Impact}})
 	out := &RecordedFinding{}
 	if err := tx.QueryRow(`INSERT INTO exploration_nodes(exploration_id,kind,payload,priority,state,origin)
 VALUES($1,'finding',$2,9,'confirmed',$3) RETURNING id`, in.ExplorationID, string(payload), in.Worker).Scan(&out.NodeID); err != nil {
@@ -387,8 +423,10 @@ VALUES($1,'finding',$2,9,'confirmed',$3) RETURNING id`, in.ExplorationID, string
 	}
 	raw, _ := json.Marshal(assets)
 	grade := ModelEvidenceGrade(in.EvidenceGrade)
-	if err := tx.QueryRow(`INSERT INTO findings(task_id,node_id,vulnclass,name,severity,summary,evidence,worker,asset_ids,evidence_grade)
-	VALUES(NULLIF($1,0),$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`, in.TaskID, out.NodeID, in.VulnClass, in.Name, in.Severity, in.Summary, in.Evidence, in.Worker, string(raw), grade).Scan(&out.FindingID); err != nil {
+	// 证据驱动三字段（危害原语/资产分层/五档分级），best-effort，见 computeTriageFields。
+	harmPrim, assetTier, triageTier := computeTriageFields(tx, assets, in.VulnClass, in.Name, in.Summary, in.Severity, grade, "pending")
+	if err := tx.QueryRow(`INSERT INTO findings(task_id,node_id,vulnclass,name,severity,summary,evidence,worker,asset_ids,evidence_grade,trigger_point,data_flow,repro_conditions,impact,harm_primitive,asset_tier,triage_tier)
+	VALUES(NULLIF($1,0),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`, in.TaskID, out.NodeID, in.VulnClass, in.Name, in.Severity, in.Summary, in.Evidence, in.Worker, string(raw), grade, in.TriggerPoint, in.DataFlow, in.ReproConditions, in.Impact, harmPrim, assetTier, triageTier).Scan(&out.FindingID); err != nil {
 		return nil, err
 	}
 	// 在**同一事务**里登记一条推送事件：提交即保证「漏洞落库」与「推送任务存在」

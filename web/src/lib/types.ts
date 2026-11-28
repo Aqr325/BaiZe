@@ -592,8 +592,17 @@ export interface Finding {
   status: FindingStatus;
   // 证据来源分级(反蜜罐): self_claim 外部自述 / local_effect 本地效果 / remote_verified 远端独立验证
   evidence_grade?: string;
+  // 证据驱动分类/分级(借 Today Security 方法论): 危害原语 / 资产分层 / 五档处置分级
+  harm_primitive?: string; // rce | auth_bypass | privilege_escalation | unauthorized | file_write | injection | ssrf | info_leak | dos | other
+  asset_tier?: string; // s | a | b | c
+  triage_tier?: number; // 1 最优先 → 6 跟踪
   summary: string;
   evidence: string;
+  // 证据链四要素(反幻觉): 触发点/数据流/复现条件/影响面 — 缺任一要素视为「待验证线索」
+  trigger_point?: string;
+  data_flow?: string;
+  repro_conditions?: string;
+  impact?: string;
   report?: string; // 详细报告(Markdown);仅详情接口返回,列表为空
   report_conversation_id?: number;
   intent_id?: string;
@@ -671,6 +680,7 @@ export interface FindingQuery {
   pageSize: number;
   severity?: "all" | Severity;
   status?: "all" | FindingStatus;
+  evidenceGrade?: "all" | string; // 反蜜罐证据分级: self_claim / local_effect / remote_verified
   vulnclass?: string;
   task?: string; // 任务 id;"all"/空 = 不按任务筛选
   query?: string;

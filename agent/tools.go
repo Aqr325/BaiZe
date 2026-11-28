@@ -1248,12 +1248,17 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 		"vulnclass": str("漏洞类别"), "name": str("漏洞名称"), "severity": str("critical|high|medium|low"), "summary": str("发现摘要"),
 		"intent_id": idp("当前任务的意图 id"), "asset_ids": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "受影响资产 id"},
 		"evidence":         str("证据/PoC 文本"),
+		"trigger_point":    str("证据链-触发点：文件:行号+参数名，能直接定位到漏洞所在代码/请求"),
+		"data_flow":        str("证据链-数据流：source -> ... -> sink 的完整路径，而非一句『可能可控』"),
+		"repro_conditions": str("证据链-复现条件：认证要求/前置状态/环境依赖，缺一不可"),
+		"impact":           str("证据链-影响面：能读到什么/能改什么，量化到具体数据或权限"),
 		"evidence_hint_id": idp("可选：本任务中对应此漏洞的提示节点 ID，自动携带其结构化 traffic_refs；不能引用继承提示或其他漏洞的提示"),
 		"traffic_refs": map[string]any{"type": "array", "description": "可选；HTTP/HTTPS 漏洞先检索并逐条核实请求/响应确实支持漏洞结论，再按复现顺序填写真实 ID。TCP 等非 HTTP 漏洞、未采集或找不到确切记录时省略或传 []，不阻止上报；可在 evidence 说明原因并提供其他可验证证据。不要猜测 ID、按域名/时间推定关联或仅为补包重复探测。用途 baseline 正常对照 / proof 漏洞证明 / verification 补充验证 / supporting 辅助证据。",
 			"items": obj(map[string]any{"traffic_id": str("traffic_search 返回的真实流量 ID"), "role": map[string]any{"type": "string", "enum": []string{"baseline", "proof", "verification", "supporting"}}, "note": str("该流量如何支持漏洞结论")}, "traffic_id")},
 	}, "vulnclass", "severity", "summary"), func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
 		var a struct {
 			VulnClass, Name, Severity, Summary, Evidence string
+			TriggerPoint, DataFlow, ReproConditions, Impact string
 			IntentID                                     json.RawMessage   `json:"intent_id"`
 			AssetIDs                                     []json.RawMessage `json:"asset_ids"`
 			TrafficRefs                                  []db.TrafficRef   `json:"traffic_refs"`
@@ -1280,7 +1285,22 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 		if err != nil {
 			return actool.Errorf(err.Error()), nil
 		}
-		input := db.RecordFindingInput{TaskID: t.taskID, ExplorationID: t.ts.ID(), IntentID: pid(a.IntentID), VulnClass: a.VulnClass, Name: a.Name, Severity: a.Severity, Summary: a.Summary, Evidence: a.Evidence, Worker: t.worker, AssetIDs: pidList(a.AssetIDs)}
+		// 证据链准入守卫（借 Today Security 抗串烧/防误判，见 db/evidence_triage.go）：
+		// (1) 投机/未证实措辞（"预计可能""尚未发现在野利用""暂无公开 PoC"等）→ severity
+		//     封顶 medium，防止把预测/辟谣当高危确证；grade 已由 ModelEvidenceGrade 保守化。
+		// (2) 多 CVE 综述/汇总且未点名本漏洞 → 拒绝：综述不是单个漏洞的确认发现，会串烧信号。
+		var guardNote string
+		specText := strings.Join([]string{a.Summary, a.Evidence, a.Name}, " ")
+		if db.IsSpeculative(specText) {
+			if a.Severity == "critical" || a.Severity == "high" {
+				a.Severity = "medium"
+				guardNote = "[准入守卫] 检测到投机/未证实措辞（" + strings.Join(db.SpeculativeMarkers(specText), "/") + "），severity 已降为 medium；待独立验证后再升级。"
+			}
+		}
+		if db.IsMultiCVESummary(specText) {
+			return actool.Errorf("report_finding 不接受多 CVE 综述/汇总（综述不是单个漏洞的确认发现，会串烧信号）。请针对具体漏洞单独上报，不要用「本周 N 个 CVE 汇总」当发现。"), nil
+		}
+		input := db.RecordFindingInput{TaskID: t.taskID, ExplorationID: t.ts.ID(), IntentID: pid(a.IntentID), VulnClass: a.VulnClass, Name: a.Name, Severity: a.Severity, Summary: a.Summary, Evidence: a.Evidence, Worker: t.worker, AssetIDs: pidList(a.AssetIDs), TriggerPoint: a.TriggerPoint, DataFlow: a.DataFlow, ReproConditions: a.ReproConditions, Impact: a.Impact}
 		var recorded *db.RecordedFinding
 		if t.findingRecorder != nil {
 			recorded, err = t.findingRecorder.Record(ctx, input, refs)
@@ -1320,7 +1340,11 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 			}
 		}
 		raw, _ := json.Marshal(result)
-		return actool.Text(fmt.Sprintf("finding recorded: %d\n%s", recorded.NodeID, raw)), nil
+		resp := fmt.Sprintf("finding recorded: %d\n%s", recorded.NodeID, raw)
+		if guardNote != "" {
+			resp = guardNote + "\n" + resp
+		}
+		return actool.Text(resp), nil
 	})
 }
 

@@ -46,6 +46,7 @@ import type {
   UsageStats,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import OverviewMotion from "@/components/overview-motion";
 
 // ── chart constants ───────────────────────────────────────────────────────────
 
@@ -1333,6 +1334,17 @@ export default function DashboardPage() {
             </div>
           )}
         </Card>
+      </div>
+
+      {/* 动效总览：MagicBento 系统状态 + AnimatedList 最近动态 */}
+      <div className="mt-4">
+        <OverviewMotion
+          tasks={tasks}
+          findings={findings}
+          agents={agents}
+          mcpServers={mcpServers}
+          activity={activity}
+        />
       </div>
     </div>
   );

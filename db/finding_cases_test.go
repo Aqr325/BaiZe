@@ -23,7 +23,7 @@ func caseTestDB(t *testing.T) (*DB, *Task, []int64) {
 	}
 	ids := []int64{}
 	for _, sev := range []string{"high", "medium", "low", "high"} {
-		id, err := d.AddFinding(task.ID, 0, "IDOR", "order access", sev, "GET /orders/{id}", "original PoC "+sev, "worker", nil)
+		id, err := d.AddFinding(task.ID, 0, "IDOR", "order access", sev, "GET /orders/{id}", "original PoC "+sev, "worker", nil, "", "", "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -111,7 +111,7 @@ func TestFindingCaseScopeSuggestionsAndDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.DeleteTask(other.ID)
-	fid, err := d.AddFinding(other.ID, 0, "IDOR", "other", "high", "same", "poc", "worker", nil)
+	fid, err := d.AddFinding(other.ID, 0, "IDOR", "other", "high", "same", "poc", "worker", nil, "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

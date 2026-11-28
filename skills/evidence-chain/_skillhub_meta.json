@@ -1,0 +1,7 @@
+{
+  "name": "Evidence Chain 证据链",
+  "installedAt": 1795900000000,
+  "source": "local:derived",
+  "version": "1.0.0",
+  "skillId": "skill_evidence_chain"
+}

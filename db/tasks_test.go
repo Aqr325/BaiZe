@@ -193,7 +193,7 @@ func TestTaskDeleteCascadeAssets(t *testing.T) {
 		t.Fatalf("shared host was not protected from traffic cleanup: %v", deletableHosts)
 	}
 
-	findingID, err := d.AddFinding(first.ID, 0, "__task_delete_cascade__", "", SeverityHigh, "summary", "evidence", "tester", []int64{exclusiveID})
+	findingID, err := d.AddFinding(first.ID, 0, "__task_delete_cascade__", "", SeverityHigh, "summary", "evidence", "tester", []int64{exclusiveID}, "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

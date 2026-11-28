@@ -33,7 +33,7 @@ func TestCountQualifyingFindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, severity := range []string{"", "critical", "low"} {
-		id, err := d.AddFinding(task.ID, 0, "test", "test", severity, "", "", "test", nil)
+		id, err := d.AddFinding(task.ID, 0, "test", "test", severity, "", "", "test", nil, "", "", "", "")
 		if err != nil {
 			t.Fatal(err)
 		}

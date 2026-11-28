@@ -265,6 +265,43 @@ function FindingDetailInner() {
                         )}
                       </CardContent>
                     </Card>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-sm">证据链四要素</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {finding.trigger_point || finding.data_flow || finding.repro_conditions || finding.impact ? (
+                          <dl className="grid gap-2 text-sm">
+                            {finding.trigger_point ? (
+                              <div>
+                                <dt className="text-muted-foreground">触发点</dt>
+                                <dd className="mt-0.5 whitespace-pre-wrap font-mono text-xs">{finding.trigger_point}</dd>
+                              </div>
+                            ) : null}
+                            {finding.data_flow ? (
+                              <div>
+                                <dt className="text-muted-foreground">数据流</dt>
+                                <dd className="mt-0.5 whitespace-pre-wrap font-mono text-xs">{finding.data_flow}</dd>
+                              </div>
+                            ) : null}
+                            {finding.repro_conditions ? (
+                              <div>
+                                <dt className="text-muted-foreground">复现条件</dt>
+                                <dd className="mt-0.5 whitespace-pre-wrap font-mono text-xs">{finding.repro_conditions}</dd>
+                              </div>
+                            ) : null}
+                            {finding.impact ? (
+                              <div>
+                                <dt className="text-muted-foreground">影响面</dt>
+                                <dd className="mt-0.5 whitespace-pre-wrap font-mono text-xs">{finding.impact}</dd>
+                              </div>
+                            ) : null}
+                          </dl>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">该发现未提供结构化证据链（触发点/数据流/复现条件/影响面），按「待验证线索」对待。</p>
+                        )}
+                      </CardContent>
+                    </Card>
                     <FindingTrafficPanel
                       key={`traffic:${id}`}
                       findingId={id}

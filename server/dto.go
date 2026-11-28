@@ -377,6 +377,9 @@ type FindingDTO struct {
 	Severity             string `json:"severity"`       // critical | high | medium | low
 	Status               string `json:"status"`         // pending | in_progress | confirmed | resolved | fixed | false_positive | ignored | duplicate | risk_accepted
 	EvidenceGrade        string `json:"evidence_grade"` // self_claim | local_effect | remote_verified
+	HarmPrimitive        string `json:"harm_primitive"`  // 危害原语：rce/auth_bypass/.../other（借 Today Security 方法论）
+	AssetTier            string `json:"asset_tier"`      // 受影响资产最高分层：s/a/b/c
+	TriageTier           int    `json:"triage_tier"`     // 五档「需要尽快处置」分级：1 最优先 → 6 跟踪
 	Summary              string `json:"summary"`
 	Evidence             string `json:"evidence"`
 	Report               string `json:"report,omitempty"` // 详细报告(Markdown);仅详情接口返回,列表为空
@@ -516,6 +519,9 @@ func findingFromDB(f *db.DBFinding, assets map[int64]*db.Asset) FindingDTO {
 		Severity:             f.Severity,
 		Status:               status,
 		EvidenceGrade:        f.EvidenceGrade,
+		HarmPrimitive:        f.HarmPrimitive,
+		AssetTier:            f.AssetTier,
+		TriageTier:           f.TriageTier,
 		Summary:              f.Summary,
 		Evidence:             f.Evidence,
 		Report:               f.Report,

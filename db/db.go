@@ -326,6 +326,11 @@ func (d *DB) seedPojunMCPServers() error {
 		{"hexstrike", "stdio", "cmd", []string{"/c", "python3", "mcp-servers/hexstrike-ai/hexstrike_mcp.py", "--server", "http://127.0.0.1:5000"}, ""},
 		{"fofa", "stdio", "cmd", []string{"/c", "uv", "--directory", "mcp-servers/fofa", "run", "python", "fofa.py"}, ""},
 		{"context7", "stdio", "cmd", []string{"/c", "npx", "-y", "@upstash/context7-mcp"}, ""},
+		// Scrapling（D4Vinci/Scrapling, BSD-3）官方 MCP Server：自适应网页采集 +
+		// Stealth 反爬 + 网页转 Markdown，供 agent 做 remote_verified 远端取证 /
+		// RAG 语料采集。uvx 启动，首次启用时拉包（含浏览器依赖需 scrapling install）。
+		// 默认 disabled，与其余 Pojun 种子一致，用户按需启用。
+		{"scrapling", "stdio", "cmd", []string{"/c", "uvx", "scrapling@latest", "mcp"}, ""},
 	}
 	for _, s := range seeds {
 		argsJSON, err := json.Marshal(s.args)

@@ -31,10 +31,20 @@ type DBFinding struct {
 	Severity             string
 	Summary              string
 	Evidence             string
-	Worker               string
-	AssetIDs             []int64
-	Status               string
-	EvidenceGrade        string // self_claim | local_effect | remote_verified
+	// 证据链四要素(反幻觉): 触发点/数据流/复现条件/影响面 — 模型上报时结构化填写,
+	// 缺任一要素的发现应视为「待验证线索」而非已确认漏洞(见 skills/evidence-chain)。
+	TriggerPoint     string
+	DataFlow         string
+	ReproConditions  string
+	Impact           string
+	Worker           string
+	AssetIDs         []int64
+	Status           string
+	EvidenceGrade    string // self_claim | local_effect | remote_verified
+	// 证据驱动分类/分级（借 Today Security 方法论，见 evidence_triage.go）。
+	HarmPrimitive string // 危害原语：rce/auth_bypass/privilege_escalation/unauthorized/.../other
+	AssetTier     string // 受影响资产最高分层：s/a/b/c
+	TriageTier    int    // 五档「需要尽快处置」分级：1 最优先 → 6 跟踪
 	Report               string // 详细报告(Markdown);仅 GetFinding 填充,列表查询不带
 	ReportConversationID *int64 `json:"report_conversation_id,omitempty"`
 	CreatedAt            time.Time
@@ -129,13 +139,13 @@ func ValidSeverity(s string) bool {
 // nodeID may be 0 (stored as NULL). name may be "" (frontend falls back to
 // vulnclass). Returns the new finding id. The evidence grade defaults to the
 // conservative self_claim; callers with an explicit grade use AddFindingGrade.
-func (d *DB) AddFinding(taskID, nodeID int64, vulnclass, name, severity, summary, evidence, worker string, assetIDs []int64) (int64, error) {
-	return d.AddFindingGrade(taskID, nodeID, vulnclass, name, severity, summary, evidence, worker, DefaultEvidenceGrade(), assetIDs)
+func (d *DB) AddFinding(taskID, nodeID int64, vulnclass, name, severity, summary, evidence, worker string, assetIDs []int64, triggerPoint, dataFlow, reproConditions, impact string) (int64, error) {
+	return d.AddFindingGrade(taskID, nodeID, vulnclass, name, severity, summary, evidence, worker, DefaultEvidenceGrade(), assetIDs, triggerPoint, dataFlow, reproConditions, impact)
 }
 
 // AddFindingGrade is AddFinding with an explicit evidence grade. Invalid grades
 // fall back to self_claim so a mistyped value can never escalate a conclusion.
-func (d *DB) AddFindingGrade(taskID, nodeID int64, vulnclass, name, severity, summary, evidence, worker, evidenceGrade string, assetIDs []int64) (int64, error) {
+func (d *DB) AddFindingGrade(taskID, nodeID int64, vulnclass, name, severity, summary, evidence, worker, evidenceGrade string, assetIDs []int64, triggerPoint, dataFlow, reproConditions, impact string) (int64, error) {
 	if !ValidEvidenceGrade(evidenceGrade) {
 		evidenceGrade = DefaultEvidenceGrade()
 	}
@@ -151,10 +161,12 @@ func (d *DB) AddFindingGrade(taskID, nodeID int64, vulnclass, name, severity, su
 		nid = &nodeID
 	}
 	var id int64
+	// 证据驱动三字段（危害原语/资产分层/五档分级），best-effort，见 computeTriageFields。
+	harmPrim, assetTier, triageTier := computeTriageFields(d, assetIDs, vulnclass, name, summary, severity, evidenceGrade, "pending")
 	err := d.QueryRow(
-		`INSERT INTO findings (task_id, node_id, vulnclass, name, severity, summary, evidence, worker, asset_ids, evidence_grade)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-		tid, nid, vulnclass, name, severity, summary, evidence, worker, string(aidsJSON), evidenceGrade,
+		`INSERT INTO findings (task_id, node_id, vulnclass, name, severity, summary, evidence, worker, asset_ids, evidence_grade, trigger_point, data_flow, repro_conditions, impact, harm_primitive, asset_tier, triage_tier)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`,
+		tid, nid, vulnclass, name, severity, summary, evidence, worker, string(aidsJSON), evidenceGrade, triggerPoint, dataFlow, reproConditions, impact, harmPrim, assetTier, triageTier,
 	).Scan(&id)
 	return id, err
 }
@@ -175,6 +187,8 @@ func (d *DB) SetFindingEvidenceGrade(id int64, grade string) error {
 const findingSelectCols = `f.id, f.task_id, f.node_id, f.vulnclass, COALESCE(f.name, ''), f.severity, f.summary,
 		f.evidence, f.worker, f.asset_ids, COALESCE(f.status, 'pending'), COALESCE(f.evidence_grade, 'self_claim'), f.created_at,
 	       COALESCE(t.description, '') AS task_description, f.evidence_version, f.report_evidence_version,
+	       COALESCE(f.trigger_point, ''), COALESCE(f.data_flow, ''), COALESCE(f.repro_conditions, ''), COALESCE(f.impact, ''),
+	       COALESCE(f.harm_primitive, ''), COALESCE(f.asset_tier, 'c'), COALESCE(f.triage_tier, 6),
 	(SELECT count(*) FROM finding_traffic_bindings b WHERE b.finding_id=f.id)`
 
 // scanFindings materializes rows selected via findingSelectCols.
@@ -188,7 +202,9 @@ func scanFindings(rows interface {
 		f := &DBFinding{}
 		var aidsJSON string
 		if err := rows.Scan(&f.ID, &f.TaskID, &f.NodeID, &f.VulnClass, &f.Name, &f.Severity,
-			&f.Summary, &f.Evidence, &f.Worker, &aidsJSON, &f.Status, &f.EvidenceGrade, &f.CreatedAt, &f.TaskDescription, &f.EvidenceVersion, &f.ReportEvidenceVersion, &f.TrafficCount); err != nil {
+			&f.Summary, &f.Evidence, &f.Worker, &aidsJSON, &f.Status, &f.EvidenceGrade, &f.CreatedAt, &f.TaskDescription, &f.EvidenceVersion, &f.ReportEvidenceVersion, &f.TrafficCount,
+			&f.TriggerPoint, &f.DataFlow, &f.ReproConditions, &f.Impact,
+			&f.HarmPrimitive, &f.AssetTier, &f.TriageTier); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(aidsJSON), &f.AssetIDs)
@@ -223,6 +239,8 @@ type FindingFilter struct {
 	Severity      string // high | medium | low
 	Status        string // pending | false_positive | ignored | resolved
 	VulnClass     string
+	// EvidenceGrade 按反蜜罐证据分级过滤: self_claim(待复核) / local_effect / remote_verified。
+	EvidenceGrade string
 	TaskID        string // 任务 id(字符串形式;空/非法 = 不按任务筛选)
 	Query         string // 名称/类型/摘要/证据/报告正文的模糊检索关键词
 	Sort          string // "severity" | "time"
@@ -268,6 +286,7 @@ func (f FindingFilter) where() (string, []any) {
 	add("severity", f.Severity)
 	add("status", f.Status)
 	add("vulnclass", f.VulnClass)
+	add("evidence_grade", f.EvidenceGrade)
 	if from := strings.TrimSpace(f.From); from != "" {
 		if parsed, err := time.Parse(time.RFC3339, from); err == nil {
 			args = append(args, parsed)
@@ -772,7 +791,8 @@ func (d *DB) GetFinding(id int64) (*DBFinding, error) {
 		WHERE f.id = $1`, id).Scan(
 		&f.ID, &f.TaskID, &f.NodeID, &f.VulnClass, &f.Name, &f.Severity,
 		&f.Summary, &f.Evidence, &f.Worker, &aidsJSON, &f.Status, &f.EvidenceGrade, &f.CreatedAt,
-		&f.TaskDescription, &f.EvidenceVersion, &f.ReportEvidenceVersion, &f.TrafficCount, &f.Report, &reportConv)
+		&f.TaskDescription, &f.EvidenceVersion, &f.ReportEvidenceVersion, &f.TrafficCount,
+		&f.TriggerPoint, &f.DataFlow, &f.ReproConditions, &f.Impact, &f.Report, &reportConv)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

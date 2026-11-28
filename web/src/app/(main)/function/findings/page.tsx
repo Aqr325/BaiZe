@@ -24,6 +24,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { TablePagination } from "@/components/table-pagination";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ReviewQueueCard } from "@/components/review-queue-card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -902,6 +903,7 @@ export default function FindingsPage() {
           </TabsList>
         </Tabs>
       </div>
+      <ReviewQueueCard />
       <div className="flex flex-1 flex-col gap-4 md:gap-6">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
           {statCards.map((stat) => {

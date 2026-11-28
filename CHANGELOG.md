@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### 新增
+
+- 注册 Scrapling（D4Vinci/Scrapling, BSD-3）官方 MCP 服务器为第 13 个 MCP 数据源：`scrapling`（stdio, `cmd /c uvx scrapling@latest mcp`），默认禁用、按需启用。用于自适应网页采集、Stealth 反爬绕过与网页转 Markdown，支撑证据链 `remote_verified` 远端取证与 RAG 语料采集。种子写入 `db.go seedPojunMCPServers`，与前端 MOCK 镜像 `web/src/lib/mock/data.ts`（id 2377）同步。
+- 证据驱动分类/分级（借 Today Security 方法论）：新增 `db/evidence_triage.go` 纯函数核心——危害原语分类（HarmPrimitive）、投机/未证实措辞检测（SpeculativeMarkers/IsSpeculative）、多 CVE 综述抗串烧检测（IsMultiCVESummary）、资产分层（AssetTier/MaxAssetTier）、五档处置分级（TriageTier，含防抖语义）、SSVC 式头条排序（HeadlineRank）、重力衰减（GravityDecay）。`findings` 表新增 `harm_primitive`/`asset_tier`/`triage_tier` 三列（插入时由纯函数计算，best-effort 不阻断入库）；`report_finding` 加准入守卫（投机措辞降级 severity 至 medium、多 CVE 综述拒绝）；复核队列卡按 `triage_tier` 稳定排序 + 危害原语/分级徽章 + 「最该处理」头条行；顺带修复历史遗留的 `AddFinding`/`AddFindingGrade` 测试签名不一致（9 参→13 参）。
+
 ## [0.3.30] - 2026-11-14
 
 ### 新增与改进

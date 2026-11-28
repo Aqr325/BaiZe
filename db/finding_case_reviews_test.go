@@ -67,7 +67,7 @@ func TestFindingCaseReviewMixedRequestRollsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { d.Exec(`DELETE FROM findings WHERE task_id=$1`, other.ID); d.DeleteTask(other.ID) })
-	fid, err := d.AddFinding(other.ID, 0, "IDOR", "other", "low", "other", "proof", "worker", nil)
+	fid, err := d.AddFinding(other.ID, 0, "IDOR", "other", "low", "other", "proof", "worker", nil, "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

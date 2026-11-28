@@ -25,6 +25,10 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { localizedError } from "@/i18n/errors";
 import { useLiveTranslation } from "@/i18n/use-live-translation";
+import ThoughtLineImpl from "@/components/thought-line";
+// ThoughtLine 为纯 JS，TS 把无默认值 props(renderLabel/elapsed/onSettle/style)推断为必填，
+// 运行时均为可选。转宽松类型避免调用点类型误报。
+const ThoughtLine = ThoughtLineImpl as unknown as React.FC<Record<string, unknown>>;
 import { api } from "@/lib/api";
 import { formatToolDetail, type ToolDetailPart, toolInputText } from "@/lib/execution-display";
 import type { Activity, InterceptPending } from "@/lib/types";
@@ -778,14 +782,16 @@ export function Transcript({
     >
       <ExecView activity={activity} taskId={taskId} chat={chat} fetchDetail={fetchDetail} focusedSeq={focusedSeq} />
       {live && (
-        <div className="flex items-center gap-2 pl-2 pt-1 text-xs text-muted-foreground">
-          <span className="flex gap-1">
-            <span className="size-1.5 animate-bounce rounded-full bg-blue-500 [animation-delay:-0.3s]" />
-            <span className="size-1.5 animate-bounce rounded-full bg-blue-500 [animation-delay:-0.15s]" />
-            <span className="size-1.5 animate-bounce rounded-full bg-blue-500" />
-          </span>
-          {translate("chatUI.streaming")}
-        </div>
+        <ThoughtLine
+          label={translate("chatUI.streaming")}
+          working
+          showTimer={false}
+          fontSize={13}
+          glyph="sparkle"
+          collapsible={false}
+          shimmer
+          className="self-start pl-2 pt-1"
+        />
       )}
     </div>
   );

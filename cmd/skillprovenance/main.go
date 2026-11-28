@@ -31,6 +31,7 @@ var origins = map[string][2]string{
 	"anthropic-cybersecurity": {"https://github.com/mukul975/Anthropic-Cybersecurity-Skills", ""},
 	"cyber-monster":           {"https://github.com/W4L33Dx/Cyber-Monster", ""},
 	"api-recon":               {"local:self-made", ""},
+	"evidence-chain":          {"local:self-made", ""},
 	"pentest-assistant":       {"local:self-made", ""},
 	"playwright-cli":          {"local:self-made", ""},
 	"red-team-ops":            {"https://github.com/JoasASantos/Awesome-Red-Team-Operations", ""},

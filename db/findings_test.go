@@ -31,7 +31,7 @@ func TestDeleteFinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fid, err := d.AddFinding(tk.ID, nodeID, "XSS", "反射型 XSS", "high", "summary", "poc", "worker", nil)
+	fid, err := d.AddFinding(tk.ID, nodeID, "XSS", "反射型 XSS", "high", "summary", "poc", "worker", nil, "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestFindingsPageAndStats(t *testing.T) {
 	}
 	var ids []int64
 	for i, s := range seed {
-		id, err := d.AddFinding(0, 0, vc, s.name, s.sev, "summary", "poc", "tester", nil)
+		id, err := d.AddFinding(0, 0, vc, s.name, s.sev, "summary", "poc", "tester", nil, "", "", "", "")
 		if err != nil {
 			t.Fatalf("AddFinding[%d]: %v", i, err)
 		}
@@ -227,7 +227,7 @@ func TestListFindingsPageUsesStableIDTieBreaker(t *testing.T) {
 	defer d.Exec(`DELETE FROM findings WHERE vulnclass=$1`, vc)
 	ids := make([]int64, 0, 7)
 	for i := 0; i < 7; i++ {
-		id, addErr := d.AddFinding(0, 0, vc, "", SeverityHigh, fmt.Sprintf("finding %d", i), "", "test", nil)
+		id, addErr := d.AddFinding(0, 0, vc, "", SeverityHigh, fmt.Sprintf("finding %d", i), "", "test", nil, "", "", "", "")
 		if addErr != nil {
 			t.Fatalf("AddFinding[%d]: %v", i, addErr)
 		}
@@ -297,7 +297,7 @@ func TestFindingGroupsAndUnassignedPaging(t *testing.T) {
 		{0, SeverityMedium, FindingPending},
 	}
 	for i, item := range seed {
-		id, addErr := d.AddFinding(item.taskID, 0, vc, "", item.severity, fmt.Sprintf("summary %d", i), "", "test", nil)
+		id, addErr := d.AddFinding(item.taskID, 0, vc, "", item.severity, fmt.Sprintf("summary %d", i), "", "test", nil, "", "", "", "")
 		if addErr != nil {
 			t.Fatalf("AddFinding[%d]: %v", i, addErr)
 		}
@@ -434,7 +434,7 @@ func TestAddFindingFollowUpIntent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	findingID, err := d.AddFinding(task.ID, findingNodeID, "test", "source", SeverityHigh, "source", "", "worker", []int64{assetID})
+	findingID, err := d.AddFinding(task.ID, findingNodeID, "test", "source", SeverityHigh, "source", "", "worker", []int64{assetID}, "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,7 +557,7 @@ func TestAddFindingEvidenceGradePersists(t *testing.T) {
 	defer d.Close()
 
 	// 默认(AddFinding)= self_claim。
-	fid, err := d.AddFinding(0, 0, "xss", "默认", "low", "s", "e", "w", nil)
+	fid, err := d.AddFinding(0, 0, "xss", "默认", "low", "s", "e", "w", nil, "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -567,7 +567,7 @@ func TestAddFindingEvidenceGradePersists(t *testing.T) {
 	}
 
 	// AddFindingGrade 显式 remote_verified 生效。
-	fid2, err := d.AddFindingGrade(0, 0, "xss", "显式", "low", "s", "e", "w", EvidenceGradeRemoteVerified, nil)
+	fid2, err := d.AddFindingGrade(0, 0, "xss", "显式", "low", "s", "e", "w", EvidenceGradeRemoteVerified, nil, "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -577,7 +577,7 @@ func TestAddFindingEvidenceGradePersists(t *testing.T) {
 	}
 
 	// 无效 grade 回退 self_claim。
-	fid3, err := d.AddFindingGrade(0, 0, "xss", "无效", "low", "s", "e", "w", "bogus", nil)
+	fid3, err := d.AddFindingGrade(0, 0, "xss", "无效", "low", "s", "e", "w", "bogus", nil, "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

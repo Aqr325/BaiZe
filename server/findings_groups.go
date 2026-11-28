@@ -31,6 +31,8 @@ func findingFilterFromQuery(q url.Values) db.FindingFilter {
 		Severity:  normFilter(q.Get("severity")),
 		Status:    normFilter(q.Get("status")),
 		VulnClass: normFilter(q.Get("vulnclass")),
+		// EvidenceGrade(反蜜罐证据分级): self_claim / local_effect / remote_verified。
+		EvidenceGrade: normFilter(q.Get("evidence_grade")),
 		// task_id(独立于会切到「按任务节点」分支的 task 参数):全局表按任务筛选。
 		TaskID:        normFilter(q.Get("task_id")),
 		Query:         q.Get("q"),

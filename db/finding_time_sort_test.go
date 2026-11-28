@@ -19,7 +19,7 @@ func TestFindingGroupTimeSort(t *testing.T) {
 	if _, err := d.Exec(`UPDATE findings SET vulnclass=$2 WHERE task_id=$1`, task.ID, marker); err != nil {
 		t.Fatal(err)
 	}
-	latest, err := d.AddFinding(other.ID, 0, marker, "latest low", "low", "summary", "evidence", "worker", nil)
+	latest, err := d.AddFinding(other.ID, 0, marker, "latest low", "low", "summary", "evidence", "worker", nil, "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestFindingCaseTimeSortPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	latest, err := d.AddFinding(task.ID, 0, "other", "latest low", "low", "summary", "evidence", "worker", nil)
+	latest, err := d.AddFinding(task.ID, 0, "other", "latest low", "low", "summary", "evidence", "worker", nil, "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
